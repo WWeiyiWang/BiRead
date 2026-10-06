@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a reproducible BiRead issue
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: input
+    id: biread-version
+    attributes:
+      label: BiRead version
+      placeholder: 0.1.0-beta
+    validations:
+      required: true
+  - type: input
+    id: zotero-version
+    attributes:
+      label: Zotero version
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Translation provider
+      description: Name only. Never enter an API key or password.
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Remove API keys, tokens, personal paths, private PDF text, and other personal data before posting.
+    validations:
+      required: false

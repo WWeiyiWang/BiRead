@@ -1,0 +1,11 @@
+.vscode
+.scaffold
+build
+dist
+logs
+node_modules
+test/fixtures
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+# zotero-cmd.json
