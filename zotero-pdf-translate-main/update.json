@@ -1,0 +1,19 @@
+{
+  "addons": {
+    "zoteropdftranslate@euclpts.com": {
+      "updates": [
+        {
+          "version": "2.0.0",
+          "update_link": "https://github.com/windingwind/zotero-pdf-translate/releases/download/v2.0.0/translate-for-zotero.xpi",
+          "update_hash": "sha512:86dda24e8547cd9d5cd7386f8662e6444fe2cda0b5780d63b79072e623df4e5c44fdd5bae4ecaf4c7c2babb6c3a8e6b3623250586fd13429304edc1f2deb0e01",
+          "applications": {
+            "zotero": {
+              "strict_min_version": "7.0.0-beta.70",
+              "strict_max_version": "7.0.*"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

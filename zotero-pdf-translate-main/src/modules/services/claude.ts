@@ -1,0 +1,247 @@
+import {
+  buildPromptParts,
+  getPref,
+  getString,
+  getThinkingLevelOptions,
+  stripThinkingTags,
+} from "../../utils";
+import { TranslateService } from "./base";
+import type { TranslateTask } from "../../utils/task";
+
+function transformContent(
+  langFrom: string,
+  langTo: string,
+  sourceText: string,
+  data: Required<TranslateTask>,
+) {
+  return buildPromptParts("claude.prompt", langFrom, langTo, sourceText, data);
+}
+
+// Removed duplicate implementation in favor of the main claude function
+
+const translate = <TranslateService["translate"]>async function (data) {
+  const apiURL = getPref("claude.endPoint") as string;
+  const model = getPref("claude.model") as string;
+  const temperature = parseFloat(getPref("claude.temperature") as string);
+  const stream = getPref("claude.stream") as boolean;
+  const maxTokens = parseInt(getPref("claude.maxTokens") as string) || 4000;
+  const thinkingLevel = getPref("claude.thinkingLevel") as string;
+
+  const refreshHandler = addon.api.getTemporaryRefreshHandler({ task: data });
+
+  const { system, user } = transformContent(
+    data.langfrom,
+    data.langto,
+    data.raw,
+    data,
+  );
+
+  // https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking
+  // The API requires max_tokens to be greater than thinking.budget_tokens
+  const thinkingBudgets = { low: 2048, medium: 8192, high: 16384 };
+  let thinking: Record<string, any> | undefined;
+  let effectiveMaxTokens = maxTokens;
+  if (thinkingLevel === "off") {
+    thinking = { type: "disabled" };
+  } else if (
+    thinkingLevel === "low" ||
+    thinkingLevel === "medium" ||
+    thinkingLevel === "high"
+  ) {
+    const budget = thinkingBudgets[thinkingLevel];
+    thinking = { type: "enabled", budget_tokens: budget };
+    effectiveMaxTokens = Math.max(maxTokens, budget + 1024);
+  }
+
+  // Pass maxTokens to the request body
+  const requestBody = {
+    model: model,
+    system: system,
+    messages: [
+      {
+        role: "user",
+        content: user,
+      },
+    ],
+    temperature: temperature,
+    stream: stream,
+    max_tokens: effectiveMaxTokens,
+    ...(thinking ? { thinking } : {}),
+  };
+
+  const headers = {
+    "Content-Type": "application/json",
+    "anthropic-version": "2023-06-01",
+    "x-api-key": data.secret,
+  };
+
+  const xhr = await Zotero.HTTP.request("POST", apiURL, {
+    headers: headers,
+    body: JSON.stringify(requestBody),
+    responseType: "text",
+    requestObserver: (xmlhttp: XMLHttpRequest) => {
+      if (stream) {
+        let preLength = 0;
+        let result = "";
+        let buffer = ""; // Buffer to handle partial JSON chunks
+
+        xmlhttp.onprogress = (e: any) => {
+          try {
+            // Get only the new data since last progress event
+            const newResponse = e.target.response.slice(preLength);
+            preLength = e.target.response.length;
+
+            // Add to our working buffer
+            buffer += newResponse;
+
+            // Process complete data: chunks by splitting on newlines
+            const lines = buffer.split("\n");
+
+            // Keep the last line in the buffer as it might be incomplete
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (!line.trim()) continue; // Skip empty lines
+
+              // Remove the "data: " prefix if present
+              const dataLine = line.startsWith("data: ") ? line.slice(6) : line;
+
+              if (dataLine.trim() === "[DONE]") continue;
+
+              try {
+                const obj = JSON.parse(dataLine);
+                if (obj.type === "content_block_delta") {
+                  result += obj.delta?.text || "";
+                } else if (
+                  obj.type === "content_block_start" ||
+                  obj.type === "content_block_stop"
+                ) {
+                  // Handle other event types if needed
+                  continue;
+                }
+              } catch (parseError) {
+                // Skip invalid JSON - might be a partial chunk
+                continue;
+              }
+            }
+
+            // Clear timeouts caused by stream transfers
+            if (e.target.timeout) {
+              e.target.timeout = 0;
+            }
+
+            // Update the result
+            data.result = stripThinkingTags(result.replace(/^\n\n/, ""));
+
+            // Refresh UI to show progress
+            refreshHandler();
+          } catch (error) {
+            console.error("Error processing Claude stream:", error);
+          }
+        };
+
+        // Also handle the load event to ensure we get the complete text
+        xmlhttp.onload = () => {
+          data.status = "success";
+
+          // Refresh UI once more to ensure we display the final result
+          refreshHandler();
+        };
+      } else {
+        // Non-streaming logic
+        xmlhttp.onload = () => {
+          try {
+            const responseObj = JSON.parse(xmlhttp.responseText);
+            // With extended thinking the first content block is the thinking
+            // block; take the first text block instead
+            const textBlock = (responseObj.content || []).find(
+              (block: any) => block.type === "text",
+            );
+            const resultContent = textBlock?.text || "";
+            data.result = stripThinkingTags(resultContent.replace(/^\n\n/, ""));
+          } catch (error) {
+            data.result = getString("status-translating");
+            data.status = "fail";
+            throw `Failed to parse response: ${error}`;
+          }
+
+          // Trigger UI updates after receiving the full response
+          refreshHandler();
+        };
+      }
+    },
+  });
+
+  if (xhr?.status !== 200) {
+    data.result = `Request error: ${xhr?.status}`;
+    data.status = "fail";
+    throw `Request error: ${xhr?.status}`;
+  }
+
+  data.status = "success";
+  return;
+};
+
+export const Claude: TranslateService = {
+  id: "claude",
+  type: "sentence",
+  helpUrl:
+    "https://docs.anthropic.com/claude/docs/getting-started-with-the-claude-api",
+
+  defaultSecret: "",
+  secretValidator(secret: string) {
+    const status = /^sk-ant-[A-Za-z0-9]{24,}$/.test(secret);
+    const empty = secret.length === 0;
+    return {
+      secret,
+      status: status || Boolean(secret),
+      info: empty
+        ? "The secret is not set."
+        : status
+          ? "Click the button to check connectivity."
+          : "The Claude API key format might be invalid. Typically starts with 'sk-ant-'.",
+    };
+  },
+
+  translate,
+
+  config(settings) {
+    settings
+      .addTextSetting({
+        prefKey: "claude.endPoint",
+        nameKey: "service-claude-dialog-endPoint",
+      })
+      .addTextSetting({
+        prefKey: "claude.model",
+        nameKey: "service-claude-dialog-model",
+      })
+      .addNumberSetting({
+        prefKey: "claude.temperature",
+        nameKey: "service-claude-dialog-temperature",
+        min: 0,
+        max: 1,
+        step: 0.1,
+      })
+      .addNumberSetting({
+        prefKey: "claude.maxTokens",
+        nameKey: "service-claude-dialog-maxTokens",
+        inputType: "number",
+        min: 100,
+        max: 10000,
+        step: 100,
+      })
+      .addTextAreaSetting({
+        prefKey: "claude.prompt",
+        nameKey: "service-claude-dialog-prompt",
+      })
+      .addCheckboxSetting({
+        prefKey: "claude.stream",
+        nameKey: "service-claude-dialog-stream",
+      })
+      .addSelectSetting({
+        prefKey: "claude.thinkingLevel",
+        nameKey: "service-claude-dialog-thinkingLevel",
+        options: getThinkingLevelOptions(),
+      });
+  },
+};

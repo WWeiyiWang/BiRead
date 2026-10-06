@@ -1,0 +1,854 @@
+We need to revise the product direction.
+
+I do NOT want:
+
+- screenshots
+- OCR screenshots
+- exported translated images
+- a newly generated bilingual PDF as the primary workflow
+- a separate external reading application
+
+I want the translation experience to happen DIRECTLY INSIDE ZOTERO.
+
+The desired workflow is:
+
+1. Open a PDF normally in Zotero.
+2. Click "Bilingual Reading".
+3. The plugin loads/translates the document.
+4. I can immediately read the FULL DOCUMENT as aligned Chinese + English.
+5. Highlights and annotations should correspond between Chinese and English.
+6. The original Zotero PDF remains the canonical source document.
+
+This should feel like a bilingual mode of the Zotero reader itself.
+
+==================================================
+PROJECT STRATEGY
+==================================================
+
+Use:
+
+https://github.com/windingwind/zotero-pdf-translate
+
+as the primary plugin foundation.
+
+Do NOT rebuild Zotero integration, providers, settings, translation services, packaging and existing mature infrastructure from scratch.
+
+Also inspect and learn from:
+
+https://github.com/1281300805/zotero-inline-translate
+
+especially its implementation of:
+
+- in-reader translation overlays
+- source text coordinate mapping
+- translation persistence
+- annotation following
+- highlight mapping between original and translated views
+
+Do NOT blindly copy incompatible code.
+
+Identify reusable architectural ideas and reimplement them cleanly in the current plugin architecture.
+
+==================================================
+CORE FEATURE
+FULL BILINGUAL READING MODE
+==================================================
+
+Add a button to the Zotero PDF reader:
+
+BILINGUAL
+
+Clicking it should open a bilingual reading representation of the CURRENT PDF.
+
+This should NOT generate a new PDF.
+
+This should NOT require taking screenshots.
+
+This should NOT open an external browser.
+
+The bilingual interface should live inside Zotero.
+
+Possible implementation:
+
+- reader tab sub-mode
+- injected reader pane
+- custom full-size reader view
+- another Zotero-native panel tied to the current attachment
+
+Choose whichever integrates most reliably with the current Zotero reader architecture.
+
+==================================================
+READING LAYOUT
+==================================================
+
+Default:
+
+LEFT
+Chinese translation
+
+RIGHT
+Original English
+
+Target ratio:
+
+58% Chinese
+42% English
+
+Optional:
+
+50 / 50
+
+Each corresponding paragraph must occupy the same bilingual row.
+
+Example:
+
+--------------------------------------------------
+
+Chinese paragraph
+
+|
+
+Original English paragraph
+
+--------------------------------------------------
+
+Next bilingual block begins only after BOTH corresponding sides are complete.
+
+Use semantic blocks such as:
+
+- title
+- abstract
+- heading
+- paragraph
+- list item
+- quotation
+- figure caption
+- footnote where feasible
+
+Do NOT align sentence-by-sentence visually.
+
+==================================================
+FULL DOCUMENT BEHAVIOUR
+==================================================
+
+I want to be able to translate/read the ENTIRE paper.
+
+When Bilingual Mode starts:
+
+1. extract document structure
+2. segment document into semantic blocks
+3. display original blocks immediately
+4. translate progressively in batches
+5. fill Chinese blocks as translations arrive
+
+Do NOT wait for the entire document to finish translating before showing anything.
+
+Display:
+
+TRANSLATING 18 / 136
+
+or another subtle progress state.
+
+The user should be able to start reading page 1 while later blocks continue translating.
+
+==================================================
+TRANSLATION CACHE
+==================================================
+
+Translation must persist locally.
+
+After a paper has been translated once:
+
+reopening Bilingual Mode should immediately load cached translations.
+
+Do NOT retranslate unchanged blocks.
+
+Cache key should include:
+
+- Zotero attachment/document ID
+- block ID
+- source text hash
+- translation provider
+- model
+- translation mode
+- glossary version
+
+==================================================
+MOST IMPORTANT:
+BILINGUAL ANNOTATION SYNCHRONISATION
+==================================================
+
+I want highlights and annotations to correspond between Chinese and English.
+
+This is a CORE FEATURE, not an optional future idea.
+
+There are two annotation directions.
+
+==================================================
+A. ORIGINAL → TRANSLATION
+==================================================
+
+If I highlight text in the ORIGINAL English PDF:
+
+Zotero creates the normal canonical PDF annotation.
+
+The plugin must detect the annotation.
+
+Then:
+
+1. determine which bilingual source block it belongs to
+2. determine the source text range
+3. find the corresponding translated text/range
+4. display a linked highlight on the Chinese side
+
+The Chinese highlight is a visual linked representation.
+
+The canonical Zotero annotation remains anchored to the original PDF.
+
+Do NOT create duplicate independent Zotero annotations unless required.
+
+==================================================
+B. TRANSLATION → ORIGINAL
+==================================================
+
+If I select/highlight Chinese translated text:
+
+the plugin should map that selection back to its corresponding English source span.
+
+Then create a REAL Zotero annotation anchored to the original PDF.
+
+After creation:
+
+English original shows the Zotero annotation.
+
+Chinese translation shows the linked translated annotation.
+
+Therefore:
+
+both sides represent ONE logical annotation.
+
+==================================================
+ANNOTATION ID MODEL
+==================================================
+
+Create a mapping layer.
+
+Example:
+
+{
+  logicalAnnotationID: "...",
+  zoteroAnnotationKey: "...",
+  blockID: "block-0042",
+
+  source: {
+    startOffset: 120,
+    endOffset: 184,
+    text: "..."
+  },
+
+  translation: {
+    startOffset: 63,
+    endOffset: 101,
+    text: "..."
+  }
+}
+
+The Zotero annotation key identifies the canonical annotation.
+
+The translation-side highlight should always reference that canonical annotation.
+
+==================================================
+IMPORTANT ANNOTATION PRINCIPLE
+==================================================
+
+Do NOT treat Chinese and English annotations as two independent annotations.
+
+Treat them as:
+
+ONE ANNOTATION
++
+TWO REPRESENTATIONS
+
+English PDF:
+canonical Zotero annotation
+
+Chinese bilingual reader:
+linked visual annotation
+
+This avoids duplicate notes, duplicate colors and sync problems.
+
+==================================================
+TEXT ALIGNMENT FOR ANNOTATIONS
+==================================================
+
+Paragraph-level correspondence is not enough for precise annotation syncing.
+
+For each translated paragraph, maintain finer-grained internal alignment.
+
+Do NOT display sentence-by-sentence layout.
+
+But internally segment each paragraph into alignment units.
+
+Possible structure:
+
+block-012
+
+sourceSegments:
+[
+  {
+    id: "012-s1",
+    source: "...",
+    sourceStart: 0,
+    sourceEnd: 85,
+    translation: "...",
+    translationStart: 0,
+    translationEnd: 41
+  },
+  ...
+]
+
+This internal alignment may be:
+
+- sentence level
+- clause level
+- another stable translation unit
+
+The UI still displays one continuous paragraph.
+
+The internal segmentation exists ONLY for:
+
+- annotation mapping
+- selection mapping
+- terminology correspondence
+
+==================================================
+TRANSLATION API OUTPUT
+==================================================
+
+For bilingual mode, translation requests should preserve segment IDs.
+
+Example request:
+
+[
+  {
+    "id": "012-s1",
+    "text": "..."
+  },
+  {
+    "id": "012-s2",
+    "text": "..."
+  }
+]
+
+Expected response:
+
+[
+  {
+    "id": "012-s1",
+    "translation": "..."
+  },
+  {
+    "id": "012-s2",
+    "translation": "..."
+  }
+]
+
+Then render translated segments together visually as a single paragraph.
+
+Do NOT ask the model to return freeform translated prose without IDs.
+
+==================================================
+HIGHLIGHT COLOURS
+==================================================
+
+If a Zotero annotation is:
+
+yellow
+red
+green
+blue
+purple
+
+the linked translated highlight should use the same annotation colour.
+
+Use a softer opacity in bilingual reading mode.
+
+Example:
+
+original PDF highlight:
+normal Zotero rendering
+
+translated side:
+same colour at approximately 18–30% background opacity
+
+==================================================
+ANNOTATION HOVER
+==================================================
+
+Hovering a highlight in Chinese:
+
+highlight the corresponding English text.
+
+Hovering the English annotation:
+
+highlight the corresponding Chinese text.
+
+Use a subtle temporary emphasis.
+
+==================================================
+ANNOTATION CLICK
+==================================================
+
+Clicking either representation should open/focus the SAME Zotero annotation.
+
+The annotation sidebar should continue to use Zotero's normal annotation object.
+
+Do NOT invent a separate notes database.
+
+==================================================
+ANNOTATION COMMENTS
+==================================================
+
+If I write a comment on the Zotero annotation:
+
+the same comment should be available when selecting the Chinese linked highlight.
+
+Do NOT duplicate the comment.
+
+The source of truth is Zotero's annotation item.
+
+==================================================
+ANNOTATION DELETION
+==================================================
+
+If the Zotero annotation is deleted:
+
+automatically remove its linked Chinese highlight.
+
+If I delete the annotation through the translated representation:
+
+delete the canonical Zotero annotation after confirmation.
+
+==================================================
+ANNOTATION EDITS
+==================================================
+
+If annotation colour or comment changes:
+
+update the translated representation automatically.
+
+Listen for Zotero annotation changes where possible.
+
+==================================================
+ZOTERO SYNC COMPATIBILITY
+==================================================
+
+Canonical annotations must remain standard Zotero annotations.
+
+This is important because Zotero annotations need to continue working with Zotero's own library/sync model.
+
+Do not replace Zotero annotations with a proprietary local-only format.
+
+The plugin may store additional translation mapping metadata locally.
+
+When Zotero annotations sync/change:
+
+reconstruct translated highlight representations from:
+
+- Zotero annotation key
+- source anchor
+- block mapping
+- cached translation alignment
+
+==================================================
+PDF POSITION MAPPING
+==================================================
+
+Preserve enough information to map source text back to the PDF.
+
+Where available store:
+
+- page index
+- text position
+- PDF text item IDs
+- quadPoints / rects
+- source offsets
+- extracted text identity
+
+Do NOT rely only on paragraph text matching.
+
+Text matching is too fragile.
+
+Use Zotero/PDF.js positional information where accessible.
+
+==================================================
+SCROLL SYNCHRONISATION
+==================================================
+
+In bilingual reading mode:
+
+scroll both columns together by semantic block.
+
+Do NOT independently scroll Chinese and English by default.
+
+Because paragraphs have different heights:
+
+do NOT use raw pixel synchronisation.
+
+Use block-based layout alignment.
+
+Each bilingual row automatically handles height differences.
+
+==================================================
+CLICK TO PDF
+==================================================
+
+Add an optional action on any bilingual block:
+
+OPEN IN PDF
+
+Clicking it should jump the normal Zotero PDF reader to the corresponding page/location.
+
+This is useful for:
+
+- figures
+- layout
+- equations
+- page context
+
+==================================================
+PDF / BILINGUAL SWITCHING
+==================================================
+
+Provide a very simple toggle:
+
+PDF
+BILINGUAL
+
+Switching should preserve approximate reading position.
+
+Example:
+
+If I am reading bilingual block 96,
+switching to PDF should navigate to the page containing block 96.
+
+Switching back should return to block 96.
+
+==================================================
+FIGURES
+==================================================
+
+I do NOT need screenshots of pages.
+
+Do not rasterize the document.
+
+For figures:
+
+show a lightweight placeholder/reference in bilingual mode:
+
+FIGURE 4
+View in PDF →
+
+Translate the caption underneath.
+
+For MVP this is enough.
+
+Later figure thumbnails may be added if easily available from PDF.js.
+
+Do NOT make screenshot generation part of the translation pipeline.
+
+==================================================
+EQUATIONS
+==================================================
+
+Do NOT translate mathematical formulas.
+
+Preserve them or show:
+
+[Equation — view in PDF]
+
+Do not send complex equation strings to the translation API unless necessary.
+
+==================================================
+REFERENCES
+==================================================
+
+Do NOT translate bibliography entries.
+
+Preserve:
+
+author names
+years
+publication titles
+DOIs
+URLs
+
+Inline citations must remain unchanged.
+
+==================================================
+ACADEMIC TRANSLATION
+==================================================
+
+Add:
+
+ACADEMIC MODE
+
+Default instruction:
+
+Translate academic English into precise and natural Simplified Chinese.
+
+Preserve:
+- conceptual distinctions
+- discipline-specific terminology
+- citations
+- proper names
+- logical relationships
+- paragraph structure
+
+Do not summarise.
+Do not simplify theoretical claims.
+Do not add explanations.
+Do not remove ambiguity that exists in the source.
+
+Use the document glossary consistently.
+
+==================================================
+DOCUMENT GLOSSARY
+==================================================
+
+Support document terminology mappings.
+
+Examples:
+
+embodiment → 具身性
+embodied cognition → 具身认知
+spatial memory → 空间记忆
+affordance → 可供性
+externalisation → 外部化
+tertiary retention → 第三持存
+
+Allow manual editing.
+
+Glossary changes should optionally trigger:
+
+RETRANSLATE AFFECTED BLOCKS
+
+rather than retranslating the entire paper.
+
+==================================================
+NO SCREENSHOT WORKFLOW
+==================================================
+
+This requirement is strict:
+
+Do NOT design the system around:
+
+- screenshots
+- OCR
+- page screenshots
+- image translation
+- screenshot-based PDF reconstruction
+
+Text should come from Zotero/PDF.js structured PDF text whenever available.
+
+OCR should only ever be a future fallback for scanned PDFs.
+
+It is not part of MVP.
+
+==================================================
+NO NEW PDF AS PRIMARY OUTPUT
+==================================================
+
+Do not create another translated PDF as the standard workflow.
+
+The original PDF remains untouched.
+
+Bilingual reading is a dynamic plugin view.
+
+A future EXPORT option may exist, but it is NOT core functionality.
+
+==================================================
+REFERENCE EXISTING IMPLEMENTATIONS
+==================================================
+
+Inspect:
+
+windingwind/zotero-pdf-translate
+
+for:
+
+- provider system
+- translation API abstraction
+- Zotero reader integration
+- annotation hooks
+- preferences
+- build process
+- packaging
+- localization
+- caching concepts
+
+Inspect:
+
+1281300805/zotero-inline-translate
+
+specifically for:
+
+- mapping translated text to source coordinates
+- annotation following
+- translated overlay persistence
+- annotation positioning after zoom/reopen
+- translation/original switching
+
+Do not copy old/incompatible implementation blindly.
+
+Adapt concepts to the current Zotero version and existing architecture.
+
+==================================================
+ARCHITECTURE
+==================================================
+
+Keep modules separated:
+
+/reader
+  bilingualReader
+  pdfIntegration
+
+/parser
+  pdfTextExtractor
+  blockSegmenter
+  readingOrder
+
+/translation
+  providers
+  academicPrompt
+  batching
+
+/alignment
+  segmentAlignment
+  selectionMapping
+
+/annotations
+  zoteroAnnotationBridge
+  translatedHighlightRenderer
+  annotationMapping
+
+/cache
+  documentCache
+  translationCache
+
+/glossary
+
+/ui
+  bilingualView
+  progress
+  settings
+
+Do not place everything in one large file.
+
+==================================================
+MVP DEVELOPMENT ORDER
+==================================================
+
+PHASE 1
+
+Get FULL bilingual reading working:
+
+1. plugin loads
+2. open PDF
+3. click BILINGUAL
+4. extract current document
+5. segment paragraphs
+6. display full English structure
+7. progressively translate document
+8. display Chinese | English aligned blocks
+9. cache translations
+10. reopen instantly
+
+PHASE 2
+
+Annotation mapping:
+
+11. detect original Zotero highlights
+12. render linked Chinese highlights
+13. preserve annotation colours
+14. clicking Chinese highlight opens Zotero annotation
+
+PHASE 3
+
+Reverse annotations:
+
+15. highlight Chinese text
+16. map Chinese selection → English source range
+17. create canonical Zotero PDF annotation
+18. show linked representations on both sides
+
+PHASE 4
+
+Polish:
+
+19. PDF/Bilingual position sync
+20. glossary
+21. retranslation
+22. context actions
+23. performance optimisation
+
+Do NOT attempt everything simultaneously.
+
+==================================================
+MVP TEST DOCUMENT
+==================================================
+
+Test with:
+
+- normal selectable-text academic PDF
+- 15–30 pages
+- multiple headings
+- citations
+- two-column pages
+- figures
+- existing Zotero highlights
+
+Test:
+
+1. full text appears in correct order
+2. translation progressively loads
+3. bilingual paragraphs remain aligned
+4. no screenshots are generated
+5. reopening uses cache
+6. existing Zotero highlights appear on Chinese side
+7. highlight colour matches
+8. clicking translated highlight opens same Zotero annotation
+9. deleting annotation removes linked highlight
+10. comments remain attached to the Zotero annotation
+11. changing annotation colour updates translated view
+12. PDF ↔ Bilingual navigation preserves location
+
+==================================================
+CRITICAL PRODUCT PRINCIPLE
+==================================================
+
+This should feel like:
+
+"Zotero has gained a bilingual reading mode."
+
+NOT:
+
+"I sent my PDF to another translation program."
+
+I open the same paper in Zotero.
+
+I click Bilingual.
+
+I read:
+
+CHINESE | ENGLISH
+
+for the whole document.
+
+I highlight or annotate either language.
+
+Both sides stay connected to the same Zotero annotation.
+
+The original PDF remains the canonical source.
+
+Translation is a live, cached, structured reading layer on top of Zotero.

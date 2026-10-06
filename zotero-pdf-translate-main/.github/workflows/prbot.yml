@@ -1,0 +1,57 @@
+name: Pull Request
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write # allow pushing lint fixes to same-repo PR branches
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Push lint fixes
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          if git diff --quiet; then
+            echo "No lint fixes needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "chore: apply lint fixes"
+          git push origin "HEAD:${{ github.head_ref }}"
+
+      - name: Check lint result (fork PRs)
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          if git diff --quiet; then
+            echo "No lint fixes needed."
+            exit 0
+          fi
+          git diff --stat
+          echo "::error::Lint produced changes. Please run 'npm run lint' locally and push the result."
+          exit 1
