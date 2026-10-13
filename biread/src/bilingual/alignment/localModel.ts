@@ -1,3 +1,4 @@
+import { segmentText } from "./segmentAlignment";
 import { getPref } from "../../utils/prefs";
 import { cacheRoot } from "../cache/documentCache";
 
@@ -77,8 +78,25 @@ export async function localModelRange(
     Math.min(...spans.map((s) => s[0])),
     Math.max(...spans.map((s) => s[1])),
   ];
-  // Do not bridge unrelated clauses into a sentence-sized highlight.
-  if (/[;；。!?！？]/u.test(texts[destination].slice(...result))) return;
+  // Reject outlying links that expand one selected sentence into several.
+  const selectedUnits = segmentText(texts[origin], "origin").filter(
+    (s) => s.sourceStart < end && s.sourceEnd > start,
+  );
+  const matchedUnits = segmentText(texts[destination], "destination").filter(
+    (s) => s.sourceStart < result[1] && s.sourceEnd > result[0],
+  );
+  if (matchedUnits.length > selectedUnits.length) return;
+  if (/[;；]/u.test(texts[destination].slice(...result))) return;
+  // Never fill large stretches of words without supporting token links.
+  const inside = words.filter(
+    (w) => w.isWordLike && w.index >= result[0] && w.index < result[1],
+  );
+  const linked = new Set(spans.map((s) => s[0]));
+  let gap = 0;
+  for (const word of inside) {
+    gap = linked.has(word.index) ? 0 : gap + 1;
+    if (gap > 8) return;
+  }
   return result;
 }
 

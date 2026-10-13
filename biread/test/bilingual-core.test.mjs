@@ -932,3 +932,25 @@ test("context alignment uses existing translations for proper names and rejects 
   assert.equal(core.contextualRange(b, "source", 0, 13, "not JSON"), undefined);
   assert.equal(core.alignmentContext(b, "source", -1, 13), undefined);
 });
+
+test("a complete translated segment cannot expand into multiple source sentences", () => {
+  const source =
+    "This research addresses the gap. The methodology uses a review. Subsequently, an experiment was conducted.";
+  const translation = "本研究旨在弥合这一空白。";
+  const b = {
+    source,
+    translation,
+    segments: [
+      {
+        sourceStart: 0,
+        sourceEnd: source.length,
+        translationStart: 0,
+        translationEnd: translation.length,
+      },
+    ],
+  };
+  assert.equal(
+    core.preciseTranslationRange(b, 0, translation.length, []),
+    undefined,
+  );
+});

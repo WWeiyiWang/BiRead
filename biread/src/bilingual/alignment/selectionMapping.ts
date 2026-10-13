@@ -1,3 +1,4 @@
+import { segmentText } from "./segmentAlignment";
 import type { Block } from "../types";
 
 export function alignmentContext(
@@ -99,7 +100,13 @@ export function preciseTranslationRange(
       .slice(unit.translationStart, unit.translationEnd)
       .trim() === block.translation.slice(start, end).trim()
   )
-    return [unit.sourceStart, unit.sourceEnd];
+    return segmentText(
+      block.source.slice(unit.sourceStart, unit.sourceEnd),
+      "source",
+    ).length <=
+      segmentText(block.translation.slice(start, end), "selection").length
+      ? [unit.sourceStart, unit.sourceEnd]
+      : undefined;
   const matches = new Map<string, [number, number]>();
   for (const candidate of candidates) {
     const words = candidate.trim().split(/\s+/).filter(Boolean);
