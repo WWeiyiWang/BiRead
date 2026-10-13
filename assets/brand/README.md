@@ -13,7 +13,8 @@
 
 SVG 可无损缩放。横版 SVG 的文字可编辑，使用 Segoe UI，缺少该字体时会回退到 Arial；如需固定显示效果，请使用 PNG。
 
-这套文件用于品牌展示，尚未替换插件现有图标。
+插件使用 48 px 和 96 px 图标，应用于插件管理列表、设置入口及共用该图标的菜单。
 
 开发者重新生成：安装 Node.js 和 sharp 后运行 node generate.cjs；也可通过 SHARP_MODULE 指定已有 sharp 模块的位置。
+
 
