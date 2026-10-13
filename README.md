@@ -23,6 +23,10 @@ PDF structure recognition is heuristic. Scanned PDFs without selectable text are
 - A sentence-translation provider configured in Zotero’s Translate settings. Some providers work without an API key; others require credentials or a local service. Availability and pricing are controlled by the provider.
 - Windows, macOS, and Linux support have not been independently release-tested. Use the manual checklist before relying on BiRead.
 
+## 本地模型中文教程
+
+想启用离线中英文词组自动对齐？请看 [本地模型安装教程（Windows）](docs/LOCAL_MODEL_ZH.md)。普通翻译不需要安装这个模型；已配置的用户无需重复安装。
+
 ## Installation
 
 1. Download the BiRead `.xpi` file attached to the [latest GitHub Release](https://github.com/WWeiyiWang/BiRead/releases).
