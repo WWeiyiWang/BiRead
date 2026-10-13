@@ -7,7 +7,7 @@ import {
 } from "../utils/task";
 
 export function registerMenu() {
-  const menuIcon = `chrome://${config.addonRef}/content/icons/favicon.png`;
+  const menuIcon = `chrome://${config.addonRef}/content/icons/biread-book-48.png`;
 
   Zotero.MenuManager.registerMenu({
     menuID: `${config.addonRef}-translate-title`,

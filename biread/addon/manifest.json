@@ -6,8 +6,8 @@
   "author": "__author__",
   "homepage_url": "__homepage__",
   "icons": {
-    "48": "chrome/content/icons/favicon.png",
-    "96": "chrome/content/icons/favicon@2x.png"
+    "48": "chrome/content/icons/biread-book-48.png",
+    "96": "chrome/content/icons/biread-book-96.png"
   },
   "applications": {
     "zotero": {
