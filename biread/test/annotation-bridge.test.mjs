@@ -419,19 +419,51 @@ test("confirmed pair is reused at a different occurrence and stale preview is re
 });
 
 test("context-menu preview is read-only and prepared manual pair persists", async () => {
-  const { block, newBridge, setGlossary, items } = fixture(async () => { throw Error("no network"); });
+  const { block, newBridge, setGlossary, items } = fixture(async () => {
+    throw Error("no network");
+  });
   await setGlossary({ tradition: "传统" });
   const bridge = newBridge();
   await bridge.start();
   const start = block.translation.indexOf("传统");
-  const prepared = await bridge.resolvePair(block, "translation", start, start + 2);
+  const prepared = await bridge.resolvePair(
+    block,
+    "translation",
+    start,
+    start + 2,
+  );
   assert.equal(items.size, 0);
   assert.equal(block.source.slice(...prepared.counterpart), "tradition");
-  const key = await bridge.create(block, "translation", start, start + 2, "#ffd400", "highlight", async () => "accept", prepared);
+  const key = await bridge.create(
+    block,
+    "translation",
+    start,
+    start + 2,
+    "#ffd400",
+    "highlight",
+    async () => "accept",
+    prepared,
+  );
   assert.equal(bridge.isLocal(key), false);
   const reopened = newBridge();
   await reopened.start();
-  assert.equal(reopened.mappings(block).find(m => m.annotationKey === key)?.translation.startOffset ?? reopened.binding(key).mapping.translation.startOffset, start);
+  assert.equal(
+    reopened.mappings(block).find((m) => m.annotationKey === key)?.translation
+      .startOffset ?? reopened.binding(key).mapping.translation.startOffset,
+    start,
+  );
   const stale = { ...prepared, translation: "outdated" };
-  await assert.rejects(bridge.create(block, "translation", start, start + 2, "#ffd400", "highlight", async () => "accept", stale), /更新/);
+  await assert.rejects(
+    bridge.create(
+      block,
+      "translation",
+      start,
+      start + 2,
+      "#ffd400",
+      "highlight",
+      async () => "accept",
+      stale,
+    ),
+    /更新/,
+  );
 });
