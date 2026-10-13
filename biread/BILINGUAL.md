@@ -27,13 +27,13 @@ BiRead 复用 Zotero 的 Translate 设置。在 Zotero 设置中选择一个句�
 
 ## 标注
 
-首次配置本地模型请看 [简单中文安装教程（Windows）](../docs/LOCAL_MODEL_ZH.md)，命令会自动生成配置文件。普通翻译无需安装模型。
+首次配置本地模型请看 [一键安装教程（Windows）](../docs/LOCAL_MODEL_ZH.md)，插件会自动下载并生成配置文件，无需安装 Python。普通翻译无需安装模型。
 
 选择文本后使用 **Highlight selection**、**Underline selection** 或鼠标旁的右键菜单。英文按 PDF 坐标保存；中文无法匹配英文时，仍保留为本机 BiRead 标注，不扩大成整句。
 
-词组匹配在本机执行，不额外调用 Google 或远程大模型。优先使用相同文字、术语表和当前文档已确认的对应关系；可在“本地对齐模型”中选择配置 JSON，启用离线 ONNX 上下文词组匹配。点击高亮、划线或批注后自动匹配并保存，不再预览或二次确认；匹配失败保留单侧标注。模型仍可能错配或漏配，不能保证每个词自动对应。
+词组匹配在本机执行，不额外调用 Google 或远程大模型。优先使用相同文字、术语表和当前文档已确认的对应关系；Windows x64 可点击“一键安装本地模型”，启用离线 ONNX 上下文词组匹配；高级用户可用“手动选择模型配置”导入 JSON。点击高亮、划线或批注后自动匹配并保存，不再预览或二次确认；匹配失败保留单侧标注。模型仍可能错配或漏配，不能保证每个词自动对应。
 
-本地模型配置包含 `python`（Python 可执行文件）、`model`（含 model.onnx、tokenizer.json 的目录）、`deps`（onnxruntime、tokenizers、numpy 安装目录）三个绝对路径。插件通过标准输入/输出调用本机 Python，不启动网络服务，也不自动下载模型。当前实测环境为 Windows、Zotero 10.0.6，模型为 cstr/awesome-align-onnx-int8，修订 e803a2f501474044099b539160aaca461976ecd0。模型约 150 MB，模型与 Python 依赖共约 295 MB，另需兼容的 Python。模型文件不包含在 XPI 中；换电脑需重新配置。
+本地模型配置包含 `python`（Python 可执行文件）、`model`（含 model.onnx、tokenizer.json 的目录）、`deps`（onnxruntime、tokenizers、numpy 安装目录）三个绝对路径。插件通过标准输入/输出调用本机 Python，不启动网络服务。点击一键安装后才下载独立运行环境和模型（共约 194 MB），无需手写配置。当前实测环境为 Windows、Zotero 10.0.6，模型为 cstr/awesome-align-onnx-int8，修订 e803a2f501474044099b539160aaca461976ecd0。模型约 150 MB，模型与 Python 依赖共约 295 MB，另需兼容的 Python。模型文件不包含在 XPI 中；换电脑需重新配置。
 
 每段首次对齐启动本机进程，后续同段使用内存缓存；超过模型 512 token 长度或运行失败时保留单侧标注并提示手动绑定。确认后的两侧精确文本范围写入本机映射缓存，原 PDF 中保存英文标注坐标。关闭论文或重启 Zotero 后从磁盘恢复，不依赖模型重新猜测。旧错误标注不会被批量覆盖，请使用下面的重新关联功能修正。
 

@@ -3,6 +3,7 @@ import type { BilingualView } from "./bilingualView";
 import type { PDFIntegration } from "../reader/pdfIntegration";
 import { AnnotationBridge } from "../annotations/zoteroAnnotationBridge";
 import { setPref } from "../../utils/prefs";
+import { installLocalModel } from "../alignment/installLocalModel";
 
 const colors = [
   ["Yellow", "#ffd400"],
@@ -80,8 +81,23 @@ export class AnnotationControls {
     });
     const color = this.colorSelect("#ffd400");
     ui.settings.append(color);
+    const installModel = ui.button("一键安装本地模型", async () => {
+      installModel.disabled = true;
+      try {
+        await installLocalModel((text) => {
+          ui.status.textContent = text;
+        });
+      } catch (error) {
+        ui.status.textContent = `安装未完成：${String(error)}。点击一键安装可重试；原有配置仍保留。`;
+      } finally {
+        installModel.disabled = false;
+      }
+    });
+    installModel.title =
+      "Windows x64：首次下载约 194 MB，自动配置并验证。之后离线运行，无需安装 Python。";
+    ui.settings.append(installModel);
     ui.settings.append(
-      ui.button("本地对齐模型", async () => {
+      ui.button("手动选择模型配置", async () => {
         try {
           const { FilePicker } = ChromeUtils.importESModule(
             "chrome://zotero/content/modules/filePicker.mjs",

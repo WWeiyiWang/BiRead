@@ -25,7 +25,7 @@ PDF structure recognition is heuristic. Scanned PDFs without selectable text are
 
 ## 本地模型中文教程
 
-想启用离线中英文词组自动对齐？请看 [本地模型安装教程（Windows）](docs/LOCAL_MODEL_ZH.md)。普通翻译不需要安装这个模型；已配置的用户无需重复安装。
+想启用离线中英文词组自动对齐？请看 [一键安装本地模型（Windows）](docs/LOCAL_MODEL_ZH.md)。普通翻译不需要安装这个模型；已配置的用户无需重复安装。
 
 ## Installation
 
@@ -55,7 +55,7 @@ The [Chinese user guide](biread/BILINGUAL.md) has more details. To install the X
 
 ## Translation providers and privacy
 
-BiRead uses provider integrations inherited from Translate for Zotero. Translation requests send extracted text to the provider you select; academic-mode requests may also include the academic translation instruction and glossary terms. Annotation matching runs locally without additional provider requests. Optional offline ONNX alignment requires separately provisioned model files and a compatible Python runtime; the plugin does not download them automatically. BiRead does not operate a translation server. Provider terms, retention, privacy, and billing apply to your requests.
+BiRead uses provider integrations inherited from Translate for Zotero. Translation requests send extracted text to the provider you select; academic-mode requests may also include the academic translation instruction and glossary terms. Annotation matching runs locally without additional provider requests. Optional offline ONNX alignment can be installed with the one-click installer on Windows x64 (about 194 MB from Python.org, PyPI and Hugging Face). Downloads are checksum-verified and the runtime is checked before activation. Manual configuration remains available on other systems. BiRead does not operate a translation server. Provider terms, retention, privacy, and billing apply to your requests.
 
 The add-on stores extracted document text, translations, glossary data, and mapping data in the local Zotero data directory under `biread-bilingual-v1/`. Provider credentials are stored through BiRead’s separate local preference namespace; this code does not add a separate encryption layer. Image previews are generated locally from the opened PDF and are not sent for translation. Existing upstream credentials are not read or changed.
 

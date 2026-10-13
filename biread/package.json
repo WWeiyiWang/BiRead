@@ -1,6 +1,6 @@
 {
   "name": "biread-zotero",
-  "version": "0.1.1-beta",
+  "version": "0.1.2-beta",
   "description": "Bilingual PDF Reader for Zotero",
   "config": {
     "addonName": "BiRead — Bilingual PDF Reader for Zotero",
@@ -19,7 +19,7 @@
     "lint:check": "prettier --check . && eslint .",
     "test": "zotero-plugin test",
     "update-deps": "npm update --save",
-    "test:bilingual": "node --test test/bilingual-core.test.mjs test/annotation-bridge.test.mjs test/annotation-provider.test.mjs"
+    "test:bilingual": "node --test test/bilingual-core.test.mjs test/annotation-bridge.test.mjs test/annotation-provider.test.mjs test/local-model-install.test.mjs"
   },
   "repository": {
     "type": "git",
