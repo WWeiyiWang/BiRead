@@ -13,7 +13,7 @@ BiRead adds bilingual reading to Zotero’s built-in PDF reader. It extracts sel
 - Progressive translation, pause/resume, local translation caching, and a per-document glossary.
 - Embedded images and local previews for some vector figures; image contents are not translated.
 - Reconstruction and translation of some text-based tables; complex or poorly structured tables may remain previews or need checking in the source PDF.
-- Zotero highlight and underline annotations linked to the source PDF. A translated word selection maps to its complete source sentence segment; word-level alignment is not available.
+- Zotero highlight and underline annotations linked to the source PDF. Local assisted phrase matching using identical text, glossary entries and previously confirmed pairs, with direct annotation creation and manual bidirectional correction. Unmatched Chinese highlights remain local to BiRead.
 
 PDF structure recognition is heuristic. Scanned PDFs without selectable text are not OCRed. Mobile reading is not implemented.
 
@@ -25,7 +25,7 @@ PDF structure recognition is heuristic. Scanned PDFs without selectable text are
 
 ## Installation
 
-1. Download the BiRead `.xpi` file attached to the [latest GitHub Release](https://github.com/WWeiyiWang/BiRead/releases) (the first beta release is not published yet).
+1. Download the BiRead `.xpi` file attached to the [latest GitHub Release](https://github.com/WWeiyiWang/BiRead/releases).
 2. In Zotero, open **Tools → Plugins**, choose the gear menu, then **Install Plugin From File…**.
 3. Select the downloaded `.xpi` and restart Zotero if it asks you to.
 
@@ -43,13 +43,15 @@ Both plugins can be installed as separate entries, but simultaneous activation i
 2. Open a text-based PDF in Zotero’s built-in reader.
 3. Click **BILINGUAL** in the reader toolbar. Use the reading mode selector to switch between immersive reading and PDF comparison.
 4. In immersive reading, choose bilingual, Chinese-only, or English-only display and adjust the reading settings.
-5. Select text and use the highlight or underline controls to create a standard Zotero annotation on the source PDF. A Chinese selection maps to its complete source sentence segment.
+5. Select text and use the highlight or underline controls to create a standard Zotero annotation on the source PDF. Unmatched Chinese selections are saved locally. Open a mark and choose **绑定 / 重新关联词组** to select and confirm both phrases in the same bilingual paragraph.
+
+Annotation comments save automatically as you type; closing the editor waits for pending saves. The right-click menu contains Highlight, Underline and Comment. Correct a match afterward with the phrase-binding controls.
 
 The [Chinese user guide](biread/BILINGUAL.md) has more details. To install the XPI locally, use the checklist in [MANUAL_INSTALL_TEST.md](docs/development/MANUAL_INSTALL_TEST.md).
 
 ## Translation providers and privacy
 
-BiRead uses provider integrations inherited from Translate for Zotero. Translation requests send extracted text to the provider you select; academic-mode requests may also include the academic translation instruction and glossary terms. BiRead does not operate a translation server. Provider terms, retention, privacy, and billing apply to your requests.
+BiRead uses provider integrations inherited from Translate for Zotero. Translation requests send extracted text to the provider you select; academic-mode requests may also include the academic translation instruction and glossary terms. Annotation matching runs locally without additional provider requests. Optional offline ONNX alignment requires separately provisioned model files and a compatible Python runtime; the plugin does not download them automatically. BiRead does not operate a translation server. Provider terms, retention, privacy, and billing apply to your requests.
 
 The add-on stores extracted document text, translations, glossary data, and mapping data in the local Zotero data directory under `biread-bilingual-v1/`. Provider credentials are stored through BiRead’s separate local preference namespace; this code does not add a separate encryption layer. Image previews are generated locally from the opened PDF and are not sent for translation. Existing upstream credentials are not read or changed.
 
@@ -59,7 +61,7 @@ The add-on stores extracted document text, translations, glossary data, and mapp
 - Scanned pages without selectable text are unsupported; no OCR is performed.
 - Figure previews are limited to extractable images and some caption-associated vector regions. Diagram text stays in the original language.
 - Text tables are reconstructed only when rows and columns can be identified reliably.
-- Chinese-to-English annotation mapping is at sentence-segment granularity, not word alignment.
+- Phrase matching uses local known pairs and optionally an offline contextual alignment model. Check the resulting highlights; omissions, paraphrases and repeated words may still require manual binding. Local Chinese annotations and phrase mappings do not sync through Zotero; changing a translation invalidates its old text offsets. See [local model setup](biread/BILINGUAL.md) for runtime requirements.
 - Provider speed, quality, availability, rate limits, and API costs are outside BiRead’s control.
 - Mobile support and translated-PDF export are not implemented.
 

@@ -1,5 +1,5 @@
 import type { Block, LinkedAnnotation, Rect } from "../types";
-import { mapRange } from "../alignment/selectionMapping";
+import { preciseSourceRange } from "../alignment/selectionMapping";
 export interface CanonicalAnnotation {
   key: string;
   type?: "highlight" | "underline";
@@ -8,6 +8,7 @@ export interface CanonicalAnnotation {
   position: { pageIndex: number; rects?: Rect[]; nextPageRects?: Rect[] };
 }
 export interface ExactMapping {
+  confirmed?: boolean;
   key: string;
   blockID: string;
   source: string;
@@ -52,8 +53,9 @@ export function annotationMappings(
         block.source.length,
         Math.max(...anchors.map((a) => a.end)),
       );
-    const translated = mapRange(block, "source", start, end);
-    if (!translated) continue;
+    const translated = preciseSourceRange(block, start, end, [
+      block.source.slice(start, end),
+    ]) || [0, 0];
     const saved = exact.find(
       (m) =>
         m.key === annotation.key &&
@@ -80,7 +82,7 @@ export function annotationMappings(
       translation: {
         startOffset: targetStart,
         endOffset: targetEnd,
-        text: block.translation!.slice(targetStart, targetEnd),
+        text: (block.translation || "").slice(targetStart, targetEnd),
       },
     });
   }

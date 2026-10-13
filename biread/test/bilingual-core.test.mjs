@@ -37,6 +37,41 @@ await build({
 const core = await import(pathToFileURL(output));
 await rm(dir, { recursive: true, force: true });
 
+test("Chinese word alignment follows meaning rather than relative position", () => {
+  const b = block(
+    "By building upon the tradition of archives as repositories of collective memory.",
+  );
+  b.translation = "通过建立档案作为集体记忆存储库的传统。";
+  Object.assign(b.segments[0], {
+    translationStart: 0,
+    translationEnd: b.translation.length,
+  });
+  const start = b.translation.indexOf("传统");
+  const span = core.preciseTranslationRange(b, start, start + 2, ["tradition"]);
+  assert.equal(b.source.slice(...span), "tradition");
+  assert.equal(
+    core.preciseTranslationRange(b, start, start + 2, [b.source]),
+    undefined,
+  );
+  assert.equal(
+    core.preciseTranslationRange(b, start, start + 2, ["unknown"]),
+    undefined,
+  );
+});
+
+test("word alignment rejects ambiguity and partial English words", () => {
+  const b = block("Art and artificial art support collective memory.");
+  b.translation = "艺术支持集体记忆。";
+  Object.assign(b.segments[0], {
+    translationStart: 0,
+    translationEnd: b.translation.length,
+  });
+  assert.equal(core.preciseTranslationRange(b, 0, 2, ["art"]), undefined);
+  assert.equal(core.preciseTranslationRange(b, 0, 2, ["arti"]), undefined);
+  const span = core.preciseTranslationRange(b, 4, 8, ["collective memory"]);
+  assert.equal(b.source.slice(...span), "collective memory");
+});
+
 function block(source = "First claim. Second claim.") {
   return {
     id: "p0-c0",
@@ -843,4 +878,57 @@ test("text table rule run includes tall rows and stops before the next section",
     core.textTableRegion(c, graphics, [c, heading]),
     [10, 100, 310, 300],
   );
+});
+
+test("context alignment uses existing translations for proper names and rejects invented quotes", () => {
+  const b = block(
+    "Spore Stepper is a modified walking stick for collecting soil samples.",
+  );
+  core.applyTranslations(b, [
+    {
+      id: b.segments[0].id,
+      translation: "孢子步进器是一种改良的手杖，用于采集土壤样本。",
+    },
+  ]);
+  const context = core.alignmentContext(b, "source", 0, 13);
+  assert.equal(context.selected, "Spore Stepper");
+  assert.equal(context.translation, b.translation);
+  let span = core.contextualRange(
+    b,
+    "source",
+    0,
+    13,
+    JSON.stringify({ quote: "孢子步进器", confident: true }),
+  );
+  assert.equal(b.translation.slice(...span), "孢子步进器");
+  span = core.contextualRange(
+    b,
+    "translation",
+    0,
+    5,
+    JSON.stringify({ quote: "Spore Stepper", confident: true }),
+  );
+  assert.equal(b.source.slice(...span), "Spore Stepper");
+  assert.equal(
+    core.contextualRange(
+      b,
+      "source",
+      0,
+      13,
+      JSON.stringify({ quote: "孢子行走装置", confident: true }),
+    ),
+    undefined,
+  );
+  assert.equal(
+    core.contextualRange(
+      b,
+      "source",
+      0,
+      13,
+      JSON.stringify({ quote: b.translation, confident: true }),
+    ),
+    undefined,
+  );
+  assert.equal(core.contextualRange(b, "source", 0, 13, "not JSON"), undefined);
+  assert.equal(core.alignmentContext(b, "source", -1, 13), undefined);
 });

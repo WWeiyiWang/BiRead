@@ -1,5 +1,7 @@
 import type { LinkedAnnotation } from "../types";
 
+const rendered = new WeakMap<HTMLElement, string>();
+
 // Split at all boundaries so overlapping annotations remain independently
 // addressable. No source or model text is ever inserted as HTML.
 export function renderHighlights(
@@ -11,6 +13,27 @@ export function renderHighlights(
   hover: (key?: string) => void,
 ) {
   const doc = container.ownerDocument;
+  const signature = JSON.stringify([text, side, mappings]);
+  // Zotero emits item notifications for unrelated records and automatic
+  // annotation comments. Replacing identical text nodes destroys selection.
+  if (rendered.get(container) === signature) return;
+  const selection = doc.getSelection();
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+  let selected: [number, number] | undefined;
+  if (
+    range &&
+    container.contains(range.startContainer) &&
+    container.contains(range.endContainer) &&
+    container.textContent === text
+  ) {
+    const prefix = range.cloneRange();
+    prefix.selectNodeContents(container);
+    prefix.setEnd(range.startContainer, range.startOffset);
+    selected = [
+      prefix.toString().length,
+      prefix.toString().length + range.toString().length,
+    ];
+  }
   const boundaries = new Set([0, text.length]);
   for (const mapping of mappings) {
     boundaries.add(
@@ -59,7 +82,7 @@ export function renderHighlights(
       }
     }
     mark.title = active
-      .map((m) => m.comment || "Open Zotero annotation (sentence-aligned)")
+      .map((m) => m.comment || "打开标注 / Open annotation")
       .join("\n");
     mark.tabIndex = 0;
     mark.onclick = () => click(active[active.length - 1].zoteroAnnotationKey);
@@ -92,4 +115,25 @@ export function renderHighlights(
     fragment.append(mark);
   }
   container.replaceChildren(fragment);
+  rendered.set(container, signature);
+  if (selected && selection) {
+    const restored = doc.createRange();
+    const walker = doc.createTreeWalker(container, 4);
+    let offset = 0,
+      begun = false;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const length = node.textContent?.length || 0;
+      if (!begun && selected[0] <= offset + length) {
+        restored.setStart(node, selected[0] - offset);
+        begun = true;
+      }
+      if (begun && selected[1] <= offset + length) {
+        restored.setEnd(node, selected[1] - offset);
+        selection.removeAllRanges();
+        selection.addRange(restored);
+        break;
+      }
+      offset += length;
+    }
+  }
 }
