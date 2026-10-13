@@ -2,6 +2,8 @@
 
 **BiRead — Bilingual PDF Reader for Zotero**
 
+📖 **第一次使用？[从 GitHub 下载、安装到 Zotero，再到翻译与标注：保姆级中文教程](docs/GETTING_STARTED_ZH.md)**
+
 BiRead adds bilingual reading to Zotero’s built-in PDF reader. It extracts selectable PDF text, organizes it into reading blocks, and translates those blocks with a translation provider configured in Zotero. You can read the original and translation side by side or use an immersive view, and create Zotero annotations from selected text.
 
 > **Beta:** BiRead is experimental. Expect bugs, layout differences, and breaking changes. Test it with a backup of your Zotero data before relying on it.

@@ -1,5 +1,7 @@
 # BiRead 使用说明
 
+新用户请先看 [从下载到使用的保姆级中文教程](../docs/GETTING_STARTED_ZH.md)。
+
 BiRead 是 Zotero 内置 PDF 阅读器的双语阅读扩展，仍处于 beta 阶段。复杂 PDF 的结构和版面识别可能出错，正式使用前请先备份 Zotero 数据并完成手动测试。
 
 ## 安装与兼容性
