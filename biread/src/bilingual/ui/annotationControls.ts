@@ -3,14 +3,17 @@ import type { BilingualView } from "./bilingualView";
 import type { PDFIntegration } from "../reader/pdfIntegration";
 import { AnnotationBridge } from "../annotations/zoteroAnnotationBridge";
 import { setPref } from "../../utils/prefs";
-import { installLocalModel } from "../alignment/installLocalModel";
+import {
+  installLocalModel,
+  ensureLocalModel,
+} from "../alignment/installLocalModel";
 
 const colors = [
-  ["Yellow", "#ffd400"],
-  ["Red", "#ff6666"],
-  ["Green", "#5fb236"],
-  ["Blue", "#2ea8e5"],
-  ["Purple", "#a28ae5"],
+  ["黄色", "#ffd400"],
+  ["红色", "#ff6666"],
+  ["绿色", "#5fb236"],
+  ["蓝色", "#2ea8e5"],
+  ["紫色", "#a28ae5"],
 ];
 export class AnnotationControls {
   readonly bridge: AnnotationBridge;
@@ -288,6 +291,7 @@ export class AnnotationControls {
   }
   update(block: Block) {
     this.ui.update(block, this.bridge.mappings(block));
+    void this.bridge.reconcile(block);
   }
   private async create(
     color: string,
@@ -299,7 +303,7 @@ export class AnnotationControls {
     this.bindingSelection = undefined;
     const selection = savedSelection || this.ui.selection();
     if (!selection) {
-      this.ui.status.textContent = "Select text within one paragraph first.";
+      this.ui.status.textContent = "请先在一个段落内选中文字。";
       return;
     }
     const block = this.blocks().find((b) => b.id === selection.blockID);
@@ -308,6 +312,14 @@ export class AnnotationControls {
     this.busy = true;
     this.ui.status.textContent = "正在查找本地词组对应关系…";
     try {
+      let modelWarning = "";
+      try {
+        await ensureLocalModel((text) => {
+          this.ui.status.textContent = text;
+        });
+      } catch (error) {
+        modelWarning = ` 自动模型准备未完成：${String(error)}。可点击一键安装重试。`;
+      }
       const key = await this.bridge.create(
         block,
         selection.side,
@@ -323,6 +335,7 @@ export class AnnotationControls {
         ? "中文高亮已保存在本机 BiRead；未可靠匹配英文，未修改原 PDF。"
         : "标注已保存。";
       this.ui.status.textContent += " " + this.bridge.alignmentStatus;
+      this.ui.status.textContent += modelWarning;
       if (focusComment)
         this.ui.inspector
           .querySelector<HTMLTextAreaElement>(
@@ -391,9 +404,9 @@ export class AnnotationControls {
       };
       const color = this.colorSelect(item.annotationColor);
       const remove = this.ui.doc.createElement("button");
-      remove.textContent = "Delete annotation";
+      remove.textContent = "删除标注";
       const close = this.ui.doc.createElement("button");
-      close.textContent = "Close";
+      close.textContent = "关闭";
       const act = async (action: () => Promise<void>) => {
         try {
           await action();

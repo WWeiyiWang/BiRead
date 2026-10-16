@@ -11,6 +11,8 @@ const output = join(dir, "core.mjs");
 await build({
   stdin: {
     contents: [
+      'export * from "./src/bilingual/parser/originalRegions";',
+      'export * from "./src/bilingual/parser/pageContinuations";',
       'export * from "./src/bilingual/alignment/segmentAlignment";',
       'export * from "./src/bilingual/alignment/selectionMapping";',
       'export * from "./src/bilingual/parser/blockSegmenter";',
@@ -36,6 +38,195 @@ await build({
 });
 const core = await import(pathToFileURL(output));
 await rm(dir, { recursive: true, force: true });
+
+test("measurement at wrapped line start stays prose while section numbers remain headings", () => {
+  const lines = [
+    "The forces decrease to",
+    "0.09 N at state I and state II, respectively. For the prestrech of",
+    "2.6. Energy Characterization",
+  ];
+  const glyphs = lines.map((text, index) => ({
+    text,
+    index,
+    rect: [40, 500 - index * 15, 280, 510 - index * 15],
+    fontSize: 10,
+    lineBreakAfter: true,
+    paragraphBreakAfter: index === 1,
+  }));
+  const blocks = core.segmentPage(glyphs, 3, "4", 800, { active: false });
+  core.inferHierarchy(blocks);
+  assert.ok(
+    blocks.find((b) => b.source.includes("0.09 N")).kind === "paragraph",
+  );
+  assert.equal(blocks.find((b) => b.source.startsWith("2.6.")).kind, "heading");
+});
+
+test("author affiliations are distinct from prose and rotated 3D text is not a footnote", () => {
+  const blocks = [
+    { ...block("Paper title"), kind: "title" },
+    {
+      ...block("Dinesh K. Patel, Xiaonan Huang, Yichi Luo, Lining Yao"),
+      kind: "heading",
+    },
+    block(
+      "D. K. Patel, L. Yao Human-Computer Interaction Institute Carnegie Mellon University Pittsburgh, PA 15213, USA E-mail: author@example.org",
+    ),
+    block("We studied university buildings and their effects on people."),
+  ];
+  core.identifyFrontMatter(blocks);
+  assert.equal(blocks[1].kind, "author-info");
+  assert.equal(blocks[2].kind, "author-info");
+  assert.equal(blocks[3].kind, "paragraph");
+  const glyphs = Array.from({ length: 10 }, (_, i) => ({
+    text: "Body prose",
+    index: i,
+    rect: [40, 400 + i * 12, 250, 410 + i * 12],
+    fontSize: 10,
+    lineBreakAfter: true,
+  }));
+  glyphs.push({
+    text: "3D printing +",
+    index: 10,
+    rect: [400, 60, 408, 130],
+    fontSize: 7,
+    rotation: 90,
+    lineBreakAfter: true,
+  });
+  assert.equal(
+    core.separateFootnotes({ glyphs, box: [0, 0, 600, 800] }).notes.length,
+    0,
+  );
+});
+
+test("headingless bibliography includes continuation blocks but not inline citations", () => {
+  const texts = [
+    "We compare methods [1], [2] and [3].",
+    "[1] H.-T. Lin, G. Leisk, Journal 2011, 6,",
+    "026007. [2] B. Lindqvist, Robotics 2022.",
+    "[3] Z. Wu, Mechatronics 2017.",
+    "More journal details.",
+  ];
+  const blocks = texts.map((t, i) => ({
+    ...block(t),
+    id: String(i),
+    kind: "paragraph",
+    pageIndex: i === 0 ? 0 : 9,
+  }));
+  core.identifyReferences(blocks);
+  assert.equal(blocks[0].kind, "paragraph");
+  assert.ok(blocks.slice(1).every((b) => b.kind === "reference"));
+});
+
+test("Patel formula left-hand glyph and rotated table follow native PDF coordinates", () => {
+  const make = (id, source, kind, rect, rotation = 0) => ({
+    id,
+    source,
+    kind,
+    rotation,
+    fontSize: 9.215,
+    pageIndex: 0,
+    pageLabel: "1",
+    segments: [],
+    anchors: [
+      { start: 0, end: source.length, charIndex: 0, pageIndex: 0, rect },
+    ],
+  });
+  const formula = make(
+    "eq",
+    "θ λ = θ λ + θ (1)",
+    "equation",
+    [66.50986, 672.0405, 289.129, 680.9775],
+  );
+  const letters = make(
+    "letters",
+    "UU U",
+    "paragraph",
+    [47.0275, 672.3735, 162.8935, 680.6175],
+  );
+  const result = core.preserveOriginalRegions(
+    [letters, formula],
+    [],
+    [0, 0, 600, 800],
+  );
+  assert.equal(result.length, 1);
+  assert.ok(formula.originalRegion.rect[0] < 47.0275);
+  const caption = make(
+    "table",
+    "Table 1. Comparison of soft bistable actuators.",
+    "caption",
+    [303.899, 66.5918, 311.347, 223.1918],
+    90,
+  );
+  const cells = [
+    make("a", "Voltage", "paragraph", [330, 640, 337, 670], 90),
+    make("b", "Pneumatic 0.09 0.04", "paragraph", [352, 66, 359, 709], 90),
+    make("c", "Not provided", "paragraph", [400, 300, 407, 350], 90),
+    make("d", "3D printing + SMA", "footnote", [530, 66, 540, 130], 90),
+  ];
+  const prose = make(
+    "body",
+    "Adjacent body text",
+    "paragraph",
+    [40, 80, 290, 710],
+  );
+  const tableResult = core.preserveOriginalRegions(
+    [prose, caption, ...cells],
+    [],
+    [0, 0, 600, 800],
+  );
+  assert.deepEqual(tableResult, [prose, caption]);
+  assert.ok(caption.originalRegion.rect[3] >= 709);
+  assert.ok(caption.originalRegion.rect[2] >= 540);
+});
+
+test("original formula absorbs nearby fragments but not prose", () => {
+  const make = (id, source, kind, rect) => ({
+    id,
+    source,
+    kind,
+    pageIndex: 0,
+    pageLabel: "1",
+    fontSize: 10,
+    segments: [],
+    anchors: [
+      { start: 0, end: source.length, charIndex: 0, pageIndex: 0, rect },
+    ],
+  });
+  const eq = make("eq", "= 0 (2)", "equation", [40, 400, 240, 410]);
+  const sub = make("sub", "total", "paragraph", [48, 412, 65, 418]);
+  const prose = make(
+    "p",
+    "The result of this analytic model is shown below.",
+    "paragraph",
+    [40, 360, 240, 380],
+  );
+  const result = core.preserveOriginalRegions(
+    [sub, eq, prose],
+    [],
+    [0, 0, 600, 800],
+  );
+  assert.equal(result.length, 2);
+  assert.ok(result.includes(prose));
+  assert.ok(eq.originalRegion.rect[3] >= 421);
+  assert.equal(eq.anchors.length, 2);
+});
+
+test("original structured table removes cell reflow and preserves caption", () => {
+  const caption = block("Table 1. Results");
+  caption.kind = "caption";
+  const cell = block("Not provided");
+  cell.id = "cell";
+  cell.kind = "table-cell";
+  cell.table = { captionID: caption.id, rect: [40, 200, 300, 400] };
+  cell.anchors.forEach((a) => (a.rect = [50, 250, 100, 260]));
+  const result = core.preserveOriginalRegions(
+    [caption, cell],
+    [],
+    [0, 0, 600, 800],
+  );
+  assert.deepEqual(result, [caption]);
+  assert.equal(caption.originalRegion.kind, "table");
+});
 
 test("Chinese word alignment follows meaning rather than relative position", () => {
   const b = block(
@@ -953,4 +1144,264 @@ test("a complete translated segment cannot expand into multiple source sentences
     core.preciseTranslationRange(b, 0, translation.length, []),
     undefined,
   );
+});
+
+test("italic font-run breaks merge only on the same baseline", () => {
+  const glyphs = core.readingOrder([
+    {
+      u: "Reading",
+      rect: [0, 500, 40, 510],
+      fontSize: 10,
+      paragraphBreakAfter: true,
+    },
+    {
+      u: "Book Title",
+      rect: [44, 500, 90, 510],
+      fontSize: 10,
+      italic: true,
+      paragraphBreakAfter: true,
+    },
+    {
+      u: "is useful.",
+      rect: [94, 500, 140, 510],
+      fontSize: 10,
+      paragraphBreakAfter: true,
+    },
+    { u: "Another paragraph.", rect: [0, 475, 100, 485], fontSize: 10 },
+  ]);
+  const blocks = core.segmentPage(glyphs, 0, "1", 800, { active: false });
+  assert.equal(blocks[0].source, "Reading Book Title is useful.");
+  assert.equal(blocks[1].source, "Another paragraph.");
+  assert.equal(blocks[0].anchors[1].charIndex, 1);
+});
+
+test("standalone margin DOI is hidden but prose DOI and numbered notes survive", () => {
+  const line = (text, index, y, size = 10) => ({
+    text,
+    index,
+    rect: [40, y, 300, y + size],
+    fontSize: size,
+    lineBreakAfter: true,
+  });
+  const page = {
+    box: [0, 0, 600, 800],
+    glyphs: [
+      line("Body discussion of doi:10.1234/example.", 0, 500),
+      line("1 This is an explanatory footnote.", 1, 60, 8),
+      line("doi:10.1234/example", 2, 25, 8),
+    ],
+  };
+  const clean = core.removePageFurniture([page])[0];
+  assert.deepEqual(
+    clean.glyphs.map((g) => g.index),
+    [0, 1],
+  );
+});
+
+test("footnote streams retain their anchors and do not interrupt body", () => {
+  const line = (text, index, y, size = 10) => ({
+    text,
+    index,
+    rect: [40, y, 300, y + size],
+    fontSize: size,
+    lineBreakAfter: true,
+  });
+  const page = {
+    box: [0, 0, 600, 800],
+    glyphs: [
+      line("Long body line.", 0, 500),
+      line("More body text.", 1, 485),
+      line("Still body text.", 2, 470),
+      line("1 Explanatory note", 3, 90, 8),
+      line("continued here.", 4, 78, 8),
+    ],
+  };
+  const result = core.separateFootnotes(page);
+  assert.deepEqual(
+    result.body.map((g) => g.index),
+    [0, 1, 2],
+  );
+  assert.deepEqual(
+    result.notes.map((g) => g.index),
+    [3, 4],
+  );
+});
+
+test("dotted contents entries keep their own page numbers", () => {
+  const lines = ["Introduction ........ 12", "Methods ........ 25"];
+  const glyphs = lines.map((text, index) => ({
+    text,
+    index,
+    rect: [40, 500 - index * 15, 400, 510 - index * 15],
+    fontSize: 10,
+    lineBreakAfter: true,
+  }));
+  const blocks = core.segmentPage(glyphs, 0, "1", 800, { active: false });
+  assert.deepEqual(
+    blocks.map((b) => b.source),
+    lines,
+  );
+});
+
+test("corresponding-author footnotes remain while publisher footer identifiers are hidden", () => {
+  const line = (text, index, y, size = 10) => ({
+    text,
+    index,
+    rect: [40, y, 300, y + size],
+    fontSize: size,
+    lineBreakAfter: true,
+  });
+  const page = {
+    box: [0, 0, 600, 800],
+    glyphs: [
+      line("Body text one", 0, 500),
+      line("Body text two", 1, 480),
+      line("Body text three", 2, 460),
+      line("Body text four", 3, 440),
+      line("Body text five", 4, 420),
+      line("*Corresponding author. Present address: France.", 5, 90, 8),
+      line("Tel.: +33-1-6985-8014", 6, 80, 8),
+      line("E-mail address: author@example.org", 7, 70, 8),
+      line(
+        "0926-6410/01/$ – see front matter © 2001 Elsevier. All rights reserved.",
+        8,
+        30,
+        8,
+      ),
+      line("PII: S0926-6410(01)00013-1", 9, 20, 8),
+    ],
+  };
+  const clean = core.removePageFurniture([page])[0];
+  const split = core.separateFootnotes(clean);
+  assert.deepEqual(
+    split.notes.map((g) => g.index),
+    [5, 6, 7],
+  );
+  assert.deepEqual(
+    split.body.map((g) => g.index),
+    [0, 1, 2, 3, 4],
+  );
+});
+
+test("cross-page continuation keeps coordinates and rejects authored new paragraphs", () => {
+  const a = block("The study examines the");
+  const b = block("effects of immersion.");
+  a.fontSize = b.fontSize = 10;
+  a.anchors.forEach((x) => (x.rect = [40, 60, 250, 70]));
+  b.pageIndex = 1;
+  b.id = "p1-c0";
+  b.anchors.forEach((x) => {
+    x.pageIndex = 1;
+    x.rect = [40, 720, 250, 730];
+  });
+  assert.equal(core.pageContinuations([a, b]).length, 1);
+  assert.equal(b.anchors[0].pageIndex, 1);
+  a.source = "The study ends here.";
+  assert.equal(core.pageContinuations([a, b]).length, 0);
+  a.source = "The study examines the";
+  b.kind = "heading";
+  assert.equal(core.pageContinuations([a, b]).length, 0);
+});
+
+test("column jumps split independent layout regions", () => {
+  const glyphs = [
+    {
+      text: "Left column text",
+      index: 0,
+      rect: [40, 500, 240, 510],
+      fontSize: 10,
+      lineBreakAfter: true,
+    },
+    {
+      text: "Right column text",
+      index: 1,
+      rect: [320, 500, 520, 510],
+      fontSize: 10,
+      lineBreakAfter: true,
+    },
+  ];
+  assert.equal(
+    core.segmentPage(glyphs, 0, "1", 800, { active: false }).length,
+    2,
+  );
+});
+
+test("right column widening beneath abstract uses separate rectangles", () => {
+  const glyphs = [
+    {
+      text: "narrow upper column continues",
+      index: 0,
+      rect: [400, 500, 550, 510],
+      fontSize: 10,
+      lineBreakAfter: true,
+    },
+    {
+      text: "into a wider lower column.",
+      index: 1,
+      rect: [320, 480, 550, 490],
+      fontSize: 10,
+      lineBreakAfter: true,
+    },
+  ];
+  const blocks = core.segmentPage(glyphs, 0, "1", 800, { active: false });
+  assert.equal(blocks.length, 2);
+  assert.equal(Math.min(...blocks[0].anchors.map((a) => a.rect[0])), 400);
+  assert.equal(Math.min(...blocks[1].anchors.map((a) => a.rect[0])), 320);
+});
+
+test("long publisher download notice at side is furniture, prose is retained", () => {
+  const text =
+    "2365709x, 0, Downloaded from https://onlinelibrary.wiley.com/doi/10.1002/admt.202201259 by CAPES, Wiley Online Library on [26/11/2022]. See the Terms and Conditions for rules of use; OA articles are governed by the applicable Creative Commons License";
+  const page = {
+    box: [0, 0, 600, 800],
+    glyphs: [
+      {
+        text,
+        index: 0,
+        rect: [580, 30, 590, 770],
+        fontSize: 8,
+        lineBreakAfter: true,
+      },
+      {
+        text: "We discuss the terms and conditions in this study.",
+        index: 1,
+        rect: [40, 400, 550, 410],
+        fontSize: 10,
+        lineBreakAfter: true,
+      },
+    ],
+  };
+  assert.deepEqual(
+    core.removePageFurniture([page])[0].glyphs.map((g) => g.index),
+    [1],
+  );
+});
+
+test("numbered formula is isolated from adjacent prose", () => {
+  const glyphs = [
+    {
+      text: "The total energy is",
+      index: 0,
+      rect: [40, 500, 240, 510],
+      fontSize: 10,
+      lineBreakAfter: true,
+    },
+    {
+      text: "Utotal = Umembrane + Uframe (1)",
+      index: 1,
+      rect: [40, 480, 240, 490],
+      fontSize: 10,
+      lineBreakAfter: true,
+    },
+    {
+      text: "where the parameters represent energy.",
+      index: 2,
+      rect: [40, 460, 240, 470],
+      fontSize: 10,
+      lineBreakAfter: true,
+    },
+  ];
+  const blocks = core.segmentPage(glyphs, 0, "1", 800, { active: false });
+  assert.equal(blocks.length, 3);
+  assert.equal(blocks[1].kind, "equation");
 });

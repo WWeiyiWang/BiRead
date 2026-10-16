@@ -3,8 +3,65 @@ import { tableTextBlocks } from "../parser/figureRegions";
 import { imageAnchor, sameRegion, type PDFImage } from "../parser/pdfImages";
 import type { Block, LinkedAnnotation, PageFurniture } from "../types";
 import { renderHighlights } from "../annotations/translatedHighlightRenderer";
+import { pageContinuations } from "../parser/pageContinuations";
+import { readerTheme } from "./readerTheme";
 
 export class BilingualView {
+  private continuationUndo: (() => void)[] = [];
+  private renderedBlocks: Block[] = [];
+  setContinuousReading(active: boolean) {
+    for (const undo of this.continuationUndo.reverse()) undo();
+    this.continuationUndo = [];
+    if (!active) return;
+    const groups = new Map<string, [HTMLElement, HTMLElement]>();
+    for (const [a, b] of pageContinuations(this.renderedBlocks)) {
+      const first = this.rows.get(a.id),
+        next = this.rows.get(b.id);
+      if (!first || !next) continue;
+      let cells = groups.get(a.id);
+      if (!cells) {
+        const columns = first.source.parentElement!;
+        cells = [this.doc.createElement("div"), this.doc.createElement("div")];
+        cells[0].className = "bi-source";
+        cells[1].className = "bi-translation";
+        for (const [i, node] of [first.source, first.translation].entries()) {
+          const home = this.doc.createComment("continuation");
+          node.before(home);
+          columns.append(cells[i]);
+          cells[i].append(node);
+          node.dataset.blockId = a.id;
+          node.style.display = "inline";
+          node.style.padding = "0";
+          this.continuationUndo.push(() => {
+            home.replaceWith(node);
+            node.style.removeProperty("display");
+            node.style.removeProperty("padding");
+            cells![i].remove();
+          });
+        }
+      }
+      for (const [i, node] of [next.source, next.translation].entries()) {
+        const home = this.doc.createComment("continuation");
+        node.before(home);
+        const space = this.doc.createTextNode(" ");
+        cells[i].append(space, node);
+        node.dataset.blockId = b.id;
+        node.style.display = "inline";
+        node.style.padding = "0";
+        this.continuationUndo.push(() => {
+          home.replaceWith(node);
+          space.remove();
+          node.style.removeProperty("display");
+          node.style.removeProperty("padding");
+        });
+      }
+      next.row.hidden = true;
+      this.continuationUndo.push(() => {
+        next.row.hidden = false;
+      });
+      groups.set(b.id, cells);
+    }
+  }
   furniture: PageFurniture[] = [];
   readonly root: HTMLElement;
   readonly list: HTMLElement;
@@ -105,6 +162,7 @@ export class BilingualView {
       #zpt-bilingual[data-reading-mode=compare] .bi-translation { display:block; border:0 }
 
     `;
+    style.textContent += readerTheme;
     root.append(style);
     this.controls = doc.createElement("div");
     this.controls.className = "bi-controls";
@@ -120,23 +178,48 @@ export class BilingualView {
     this.settings.className = "bi-settings";
     this.controls.append(this.primary, this.modeRow, this.settings);
     this.controls.dataset.collapsed = String(
-      getPref("bilingual.controlsCollapsed") === true,
+      getPref("bilingual.controlsCollapsed") !== false,
     );
     this.status = doc.createElement("span");
     this.status.className = "bi-status";
     this.status.setAttribute("role", "status");
     this.status.setAttribute("aria-live", "polite");
-    const pdfButton = this.button("PDF", onPDF);
-    this.primary.append(pdfButton);
+    const pdfButton = this.button("返回 PDF", onPDF);
     const title = doc.createElement("strong");
-    title.textContent = "论文阅读";
-    this.primary.append(title);
-    this.settings.append(this.status);
+    title.className = "bi-brand";
+    // Inline vector also works inside the PDF reader's restricted document.
+    const logo = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+    logo.setAttribute("viewBox", "0 0 512 512");
+    logo.setAttribute("aria-hidden", "true");
+    for (const mirrored of [false, true]) {
+      const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute(
+        "d",
+        "M64 108C64 93 77 88 93 92C147 104 197 133 243 177V448C207 425 158 405 107 392C76 384 64 370 64 344V285C64 265 69 253 82 244C68 235 64 223 64 206Z",
+      );
+      path.setAttribute("fill", mirrored ? "#3B3B3B" : "#CDBA9D");
+      if (mirrored)
+        path.setAttribute("transform", "translate(512 0) scale(-1 1)");
+      logo.append(path);
+      const lines = doc.createElementNS("http://www.w3.org/2000/svg", "path");
+      lines.setAttribute("d", "M124 205L188 235M124 275L188 305");
+      lines.setAttribute("stroke", "white");
+      lines.setAttribute("stroke-width", "24");
+      lines.setAttribute("stroke-linecap", "round");
+      if (mirrored)
+        lines.setAttribute("transform", "translate(512 0) scale(-1 1)");
+      logo.append(lines);
+    }
+    title.append(logo, doc.createTextNode("BiRead"));
+    this.primary.append(title, pdfButton);
+    this.controls.append(this.status);
     const ratio = doc.createElement("select");
     ratio.setAttribute("aria-label", "Column ratio");
     for (const value of ["42 / 58", "50 / 50"]) {
       const option = doc.createElement("option");
-      option.textContent = value;
+      option.textContent =
+        value === "42 / 58" ? "栏宽 · 译文优先" : "栏宽 · 左右等宽";
+      option.value = value;
       ratio.append(option);
     }
     ratio.onchange = () =>
@@ -179,7 +262,7 @@ export class BilingualView {
     collapse.className = "bi-collapse-settings";
     const renderCollapse = () => {
       const collapsed = this.controls.dataset.collapsed === "true";
-      collapse.textContent = collapsed ? "显示设置 ▾" : "收起设置 ▴";
+      collapse.textContent = collapsed ? "阅读设置 ▾" : "收起设置 ▴";
       collapse.setAttribute("aria-expanded", String(!collapsed));
       collapse.setAttribute("aria-label", collapsed ? "显示设置" : "收起设置");
     };
@@ -209,7 +292,7 @@ export class BilingualView {
     this.selectSetting(
       "字号",
       "bilingual.fontSize",
-      [12, 14, 15, 16, 18, 20, 22, 24, 28].map((n) => [String(n), n + " px"]),
+      [12, 14, 15, 16, 18, 20, 22, 24, 28].map((n) => [String(n), "字号 " + n]),
       "15",
       (value) => root.style.setProperty("--reading-size", value + "px"),
     );
@@ -257,19 +340,40 @@ export class BilingualView {
     };
     if (["显示语言", "字号", "行距"].includes(label))
       select.disabled = this.root.dataset.readingMode === "compare";
-    this.settings.append(select);
+    select.title = label;
+    if (["显示语言", "字号"].includes(label)) this.modeRow.append(select);
+    else this.settings.append(select);
     return select;
   }
   private openBlock: (block: Block) => void;
   button(label: string, callback: () => void) {
     const button = this.doc.createElement("button");
     button.type = "button";
-    button.textContent = label;
+    const labels: Record<string, string> = {
+      Pause: "暂停翻译",
+      "Retry / Resume": "继续 / 重试",
+      Glossary: "术语表",
+      "Highlight selection": "高亮",
+      "Underline selection": "划线",
+    };
+    button.textContent = labels[label] || label;
+    button.title = button.textContent;
     button.onclick = callback;
-    this.settings.append(button);
+    if (
+      [
+        "Pause",
+        "Retry / Resume",
+        "Highlight selection",
+        "Underline selection",
+      ].includes(label)
+    )
+      this.modeRow.append(button);
+    else this.settings.append(button);
     return button;
   }
   showBlocks(blocks: Block[]) {
+    this.setContinuousReading(false);
+    this.renderedBlocks = blocks;
     this.rows.clear();
     this.list.replaceChildren();
     const fragment = this.doc.createDocumentFragment();
@@ -294,7 +398,7 @@ export class BilingualView {
     outline.onchange = () => {
       if (outline.value) this.scrollTo(outline.value);
     };
-    this.settings.append(outline);
+    this.modeRow.append(outline);
     const tables = new Map<string, HTMLElement>();
     let section: HTMLElement | undefined;
     let sectionID: string | undefined;
@@ -309,10 +413,26 @@ export class BilingualView {
       const meta = this.doc.createElement("div");
       meta.className = "bi-meta";
       const label = this.doc.createElement("span");
-      label.textContent = `p. ${block.pageLabel} · ${block.kind}`;
+      const kinds: Record<string, string> = {
+        "author-info": "作者信息 · Authors & affiliations",
+        "publication-info": "出版信息",
+        title: "标题",
+        heading: "章节",
+        paragraph: "正文",
+        abstract: "摘要",
+        list: "列表",
+        caption: "图表说明",
+        reference: "参考文献 · Reference",
+        equation: "公式",
+        "table-cell": "表格",
+      };
+      label.textContent =
+        block.kind === "footnote"
+          ? `第 ${block.pageLabel} 页 · ${/corresponding author/i.test(block.source) ? "通讯作者脚注" : "脚注"}`
+          : `第 ${block.pageLabel} 页 · ${kinds[block.kind] || block.kind}`;
       const jump = this.doc.createElement("button");
       jump.textContent =
-        block.kind === "caption" ? "View figure/table in PDF →" : "OPEN IN PDF";
+        block.kind === "caption" ? "原图 / 原表 ↗" : "原文定位 ↗";
       jump.onclick = () => this.openBlock(block);
       meta.append(label, jump);
       const columns = this.doc.createElement("div");
@@ -400,6 +520,7 @@ export class BilingualView {
       this.update(block, []);
     }
     this.list.append(fragment);
+    this.setContinuousReading(this.root.dataset.readingMode !== "compare");
   }
   imageLoader(block: Block) {
     const element = this.doc.createElement("div");
@@ -431,6 +552,7 @@ export class BilingualView {
     }
     const row = this.rows.get(anchor.id)?.row;
     if (!row) return;
+    if (anchor.kind === "equation") row.dataset.originalEquation = "true";
     let group = row.querySelector<HTMLElement>(".bi-images");
     if (!group) {
       group = this.doc.createElement("div");
@@ -478,7 +600,11 @@ export class BilingualView {
     const caption = this.doc.createElement("figcaption");
     caption.append(
       this.doc.createTextNode(
-        (image.preview ? "图表预览 · p. " : "原图 · p. ") +
+        (anchor.kind === "equation"
+          ? "原文公式 · p. "
+          : image.preview
+            ? "图表预览 · p. "
+            : "原图 · p. ") +
           anchor.pageLabel +
           " · 点击图片放大 ",
       ),
@@ -560,15 +686,20 @@ export class BilingualView {
   }
   visibleBlock(): string | undefined {
     const top = this.list.getBoundingClientRect().top;
-    for (const [id, { row }] of this.rows)
+    for (const [id, entry] of this.rows) {
+      const row = entry.source.getClientRects().length
+        ? entry.source
+        : entry.translation;
       if (
         row.getClientRects().length &&
         row.getBoundingClientRect().bottom > top + 20
       )
         return id;
+    }
   }
   scrollTo(id: string) {
-    const row = this.rows.get(id)?.row;
+    const entry = this.rows.get(id);
+    const row = entry?.row.hidden ? entry.source : entry?.row;
     const details = row?.closest<HTMLDetailsElement>("details");
     if (details) details.open = true;
     row?.scrollIntoView({ block: "start" });

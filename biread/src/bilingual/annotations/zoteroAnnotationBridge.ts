@@ -54,6 +54,89 @@ export class AnnotationBridge {
   private storeName = "";
   private disposed = false;
   private refreshSequence = 0;
+  private alignmentQueue: Promise<void> = Promise.resolve();
+  private attempted = new Set<string>();
+  // Native PDF annotations bypass create(). Resolve them after either the
+  // annotation or its translated block becomes available.
+  reconcile(block: Block) {
+    if (
+      this.disposed ||
+      !this.storeName ||
+      !block.translation ||
+      !localModelConfigured()
+    )
+      return;
+    for (const mapping of annotationMappings(
+      block,
+      this.annotations,
+      this.exact,
+    )) {
+      if (mapping.translation.endOffset > mapping.translation.startOffset)
+        continue;
+      const key = mapping.zoteroAnnotationKey;
+      const annotation = this.annotations.find((a) => a.key === key);
+      if (!annotation) continue;
+      const source = block.source,
+        translation = block.translation;
+      const position = JSON.stringify(annotation.position);
+      const signature = JSON.stringify([
+        key,
+        block.id,
+        source,
+        translation,
+        position,
+      ]);
+      if (this.attempted.has(signature)) continue;
+      this.attempted.add(signature);
+      this.alignmentQueue = this.alignmentQueue
+        .then(async () => {
+          if (this.disposed) return;
+          const { counterpart } = await this.resolvePair(
+            block,
+            "source",
+            mapping.source.startOffset,
+            mapping.source.endOffset,
+          );
+          if (
+            !counterpart ||
+            this.disposed ||
+            block.source !== source ||
+            block.translation !== translation ||
+            !this.annotations.some(
+              (a) => a.key === key && JSON.stringify(a.position) === position,
+            )
+          )
+            return;
+          // A manual binding made while inference ran always wins.
+          if (
+            this.exact.some(
+              (m) =>
+                m.key === key &&
+                m.blockID === block.id &&
+                m.source === source &&
+                m.translation === translation &&
+                m.position === position,
+            )
+          )
+            return;
+          this.exact.push({
+            key,
+            blockID: block.id,
+            source,
+            translation,
+            position,
+            sourceStart: mapping.source.startOffset,
+            sourceEnd: mapping.source.endOffset,
+            start: counterpart[0],
+            end: counterpart[1],
+          });
+          await writeJSON(this.storeName, this.exact);
+          if (!this.disposed) this.changed();
+        })
+        .catch((error) => Zotero.logError(error));
+    }
+    return this.alignmentQueue;
+  }
   constructor(
     private integration: PDFIntegration,
     private blocks: () => Block[],

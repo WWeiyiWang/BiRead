@@ -1,8 +1,12 @@
 import { blockRect, sameRegion } from "./pdfImages";
+import { preserveOriginalRegions } from "./originalRegions";
 import { extractTextTables } from "./textTables";
 import {
   removePageFurniture,
   assignSections,
+  identifyReferences,
+  identifyFrontMatter,
+  separateFootnotes,
   type TextPage,
 } from "./documentStructure";
 import type { DocumentData, Rect } from "../types";
@@ -45,9 +49,10 @@ export async function extractDocument(
   const cleanPages = removePageFurniture(pages);
   for (let pageIndex = 0; pageIndex < cleanPages.length; pageIndex++) {
     if (cancelled()) throw new Error("Cancelled");
-    const { glyphs, box } = cleanPages[pageIndex];
+    const { glyphs: allGlyphs, box } = cleanPages[pageIndex];
+    const { body: glyphs, notes } = separateFootnotes(cleanPages[pageIndex]);
     const label = labels?.[pageIndex] || String(pageIndex + 1);
-    const retainedIndices = new Set(glyphs.map((g) => g.index));
+    const retainedIndices = new Set(allGlyphs.map((g) => g.index));
     let graphics: Rect[] = [];
     if (pdf.getGraphics) {
       try {
@@ -127,8 +132,17 @@ export async function extractDocument(
               sameRegion(blockRect(block), blockRect(other), 0.78),
           ),
     );
+    // Notes are retained as content, after this page's prose, with original anchors.
+    const noteBlocks = segmentPage(notes, pageIndex, label, box[3] - box[1], {
+      active: false,
+    });
+    for (const note of noteBlocks) note.kind = "footnote";
+    unique.push(...noteBlocks);
     document.blocks.push(
-      ...unique.map((block) => ({ ...block, pageBox: box })),
+      ...preserveOriginalRegions(unique, graphics, box).map((block) => ({
+        ...block,
+        pageBox: box,
+      })),
     );
     await Zotero.Promise.delay(0);
   }
@@ -137,6 +151,8 @@ export async function extractDocument(
       "No selectable text found. Scanned PDFs are not supported in this version.",
     );
   inferHierarchy(document.blocks);
+  identifyFrontMatter(document.blocks);
+  identifyReferences(document.blocks);
   assignSections(document.blocks);
   return document;
 }

@@ -467,3 +467,38 @@ test("context-menu preview is read-only and prepared manual pair persists", asyn
     /更新/,
   );
 });
+
+test("native PDF underline is aligned and restored after reopening", async () => {
+  const { block, items, newBridge } = fixture();
+  const start = block.source.indexOf("collective memory");
+  items.set("NATIVE", {
+    key: "NATIVE",
+    annotationType: "underline",
+    annotationColor: "#5fb236",
+    annotationComment: "",
+    annotationPosition: JSON.stringify({
+      pageIndex: 0,
+      rects: [[start * 5, 700, (start + 17) * 5, 710]],
+    }),
+  });
+  Zotero.Prefs.get = () => "model-config";
+  let bridge = newBridge();
+  await bridge.start();
+  let calls = 0;
+  bridge.resolvePair = async () => {
+    calls++;
+    return { counterpart: [4, 8] };
+  };
+  await bridge.reconcile(block);
+  assert.equal(calls, 1);
+  assert.equal(bridge.mappings(block)[0].translation.text, "集体记忆");
+  assert.equal(bridge.mappings(block)[0].type, "underline");
+  assert.equal(bridge.mappings(block)[0].color, "#5fb236");
+  await bridge.reconcile(block);
+  assert.equal(calls, 1);
+  bridge.dispose();
+  bridge = newBridge();
+  await bridge.start();
+  assert.equal(bridge.mappings(block)[0].translation.text, "集体记忆");
+  bridge.dispose();
+});

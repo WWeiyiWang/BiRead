@@ -118,7 +118,9 @@ export class CompareMode {
     if (!container) throw new Error("当前 PDF 阅读器不支持对照布局。");
     const viewer = this.integration.win.PDFViewerApplication.pdfViewer;
     this.active = active;
+    if (active) this.ui.setContinuousReading(false);
     this.layout.set(active);
+    if (!active) this.ui.setContinuousReading(true);
     if (active) {
       this.savedRight = container.style.getPropertyValue("right");
       this.savedPriority = container.style.getPropertyPriority("right");

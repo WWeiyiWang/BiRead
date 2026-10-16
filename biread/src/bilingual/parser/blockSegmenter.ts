@@ -2,6 +2,18 @@ import { textLines, lineText } from "./documentStructure";
 import type { Block, Glyph } from "../types";
 import { segmentText } from "../alignment/segmentAlignment";
 
+function sectionNumber(text: string) {
+  // Measurements at the start of a wrapped body line are not section numbers.
+  if (
+    /^[+-]?\d+(?:\.\d+)?\s*(?:N|mN|kN|V|mV|A|mA|W|kW|Pa|kPa|MPa|Hz|kHz|mm|cm|m|s|ms|kg|g|K|°C|%)\b/.test(
+      text,
+    ) ||
+    /[a-z][.!?]\s+[A-Z][a-z]/.test(text)
+  )
+    return null;
+  return text.match(/^((?:\d+|[A-Z])(?:\.\d+)*)(?:\.)?\s+[A-Za-z]/);
+}
+
 function median(values: number[]) {
   const sorted = values
     .filter((v) => v > 0 && Number.isFinite(v))
@@ -67,7 +79,9 @@ export function segmentPage(
     else if (
       source.length < 180 &&
       /[=∑∫∏]/.test(source) &&
-      (source.match(/[a-zA-Z]{3,}/g) || []).length < 3
+      ((source.match(/[a-zA-Z]{3,}/g) || []).length < 3 ||
+        (/\(\d{1,3}\)\s*$/.test(source) &&
+          (source.match(/[a-zA-Z]{3,}/g) || []).length < 10))
     )
       kind = "equation";
     blocks.push({
@@ -78,6 +92,7 @@ export function segmentPage(
       pageHeight,
       source,
       anchors,
+      rotation: styles.find((g) => g.text.trim())?.rotation || 0,
       fontSize: median(styles.map((g) => g.fontSize || 0)),
       bold: styles.filter((g) => g.bold).length > styles.length * 0.65,
       italic: styles.filter((g) => g.italic).length > styles.length * 0.65,
@@ -90,21 +105,54 @@ export function segmentPage(
   const lines = textLines(glyphs).flatMap(splitAbstractLabel);
   let previousSize = 0;
   let pendingHeading = false;
+  let previousLine: Glyph[] | undefined;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i],
       text = lineText(line),
       size = median(line.map((g) => g.fontSize || 0));
+    // A paragraph cannot span disconnected columns. Large sideways jumps or
+    // a return upwards indicate a new physical region, even without native breaks.
+    if (source && previousLine) {
+      const left = Math.min(...line.map((g) => g.rect[0]));
+      const right = Math.max(...line.map((g) => g.rect[2]));
+      const prevLeft = Math.min(...previousLine.map((g) => g.rect[0]));
+      const prevRight = Math.max(...previousLine.map((g) => g.rect[2]));
+      const top = Math.max(...line.map((g) => g.rect[3]));
+      const prevTop = Math.max(...previousLine.map((g) => g.rect[3]));
+      if (
+        left >= prevRight ||
+        right <= prevLeft ||
+        top > prevTop + (size || 10) ||
+        // A column can widen below an inset abstract while its right edge
+        // remains fixed. A single bounding rectangle would cover the abstract.
+        (Math.abs(left - prevLeft) > (size || 10) * 3 &&
+          Math.abs(right - prevRight) < (size || 10) * 2) ||
+        (Math.abs(left - prevLeft) > (size || 10) * 3 &&
+          Math.abs(right - prevRight) > (size || 10) * 3)
+      )
+        flush();
+    }
     const list = /^(?:[•▪◦●‣–—-]\s+|\(?\d+[.)]\s+|[a-z][.)]\s+)/.test(text);
+    const numberedEquation =
+      text.length < 180 &&
+      /[=∑∫∏]/.test(text) &&
+      /\(\d{1,3}\)\s*$/.test(text) &&
+      (text.match(/[a-zA-Z]{3,}/g) || []).length < 10;
+    if (numberedEquation) flush();
+    // Keep a dotted-leader TOC entry and its page number together as one block.
+    const contentsEntry =
+      /\S.*(?:\.{3,}|…{2,}|·{3,})\s*(?:\d+|[ivxlcdm]+)\s*$/i.test(text);
     const heading =
       text.length < 160 &&
       !/[.!?;,]$/.test(text) &&
-      (/^(?:\d+(?:\.\d+)*|[A-Z](?:\.\d+)*)\s+[A-Z]/.test(text) ||
+      (!!sectionNumber(text) ||
         /^(?:Abstract|Introduction|References|Bibliography|Conclusion|Acknowledgments)$/i.test(
           text,
         ));
     if (
       source &&
-      (list ||
+      (contentsEntry ||
+        list ||
         heading ||
         (pendingHeading && text.length > 80) ||
         (size &&
@@ -130,8 +178,10 @@ export function segmentPage(
     }
     // A standalone label must not absorb even a short following prose line.
     if (/^abstract[:：.]?\s*$/i.test(source)) flush();
+    if (contentsEntry || numberedEquation) flush();
     pendingHeading = !!source && heading;
     previousSize = size;
+    previousLine = line;
   }
   flush();
   return blocks;
@@ -154,7 +204,7 @@ export function inferHierarchy(blocks: Block[]) {
       text.length < 180 &&
       text.split(/\s+/).length < 24 &&
       !/[.!?;,]$/.test(text);
-    const numbered = text.match(/^((?:\d+|[A-Z])(?:\.\d+)*)(?:\.)?\s+[A-Za-z]/);
+    const numbered = sectionNumber(text);
     const known =
       /^(?:abstract[:：.]?|introduction|background|related work|methods?|methodology|results?|discussion|conclusions?|references|bibliography|acknowledg(?:e)?ments?|appendix(?:\s+[A-Z])?)$/i.test(
         text,

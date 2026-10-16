@@ -113,7 +113,7 @@ class Session {
     const check = this.ui.doc.createElement("input");
     check.type = "checkbox";
     check.checked = this.mode === "academic";
-    academic.append(check, this.ui.doc.createTextNode(" ACADEMIC MODE"));
+    academic.append(check, this.ui.doc.createTextNode(" 学术润色"));
     check.onchange = () => {
       this.mode = check.checked ? "academic" : "standard";
       setPref("bilingual.academic", check.checked);

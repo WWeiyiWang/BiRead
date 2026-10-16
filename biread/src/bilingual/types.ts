@@ -1,5 +1,6 @@
 export type Rect = [number, number, number, number];
 export interface Glyph {
+  rotation?: number;
   text: string;
   rect: Rect;
   index: number;
@@ -27,6 +28,8 @@ export interface Segment {
   translationEnd?: number;
 }
 export type BlockKind =
+  | "author-info"
+  | "publication-info"
   | "table-cell"
   | "title"
   | "heading"
@@ -38,6 +41,8 @@ export type BlockKind =
   | "reference"
   | "footnote";
 export interface Block {
+  rotation?: number;
+  originalRegion?: { kind: "equation" | "table"; rect: Rect };
   id: string;
   kind: BlockKind;
   headingLevel?: number;
@@ -73,7 +78,7 @@ export interface PageFurniture {
   glyphs: Glyph[];
   rules: Rect[];
 }
-export const DOCUMENT_PARSER_VERSION = 2;
+export const DOCUMENT_PARSER_VERSION = 12;
 export interface DocumentData {
   version: 1;
   parserVersion?: number;

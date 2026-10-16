@@ -35,7 +35,8 @@ export class PageLayout {
       #zpt-bilingual .bi-paper { position:relative; background:white; color:#242424; margin:0 auto 18px; box-shadow:0 1px 4px #0003; }
       #zpt-bilingual .bi-paper .bi-row { position:absolute; margin:0; padding:0; border:0; max-width:none }
       #zpt-bilingual .bi-paper .bi-meta, #zpt-bilingual .bi-paper .bi-images, #zpt-bilingual .bi-paper .bi-table-text { display:none }
-      #zpt-bilingual .bi-paper .bi-text { padding:0!important; margin:0!important; text-indent:0; line-height:1.25; font-size:inherit!important; }
+      #zpt-bilingual .bi-paper .bi-text { padding:0!important; margin:0!important; text-indent:0; line-height:1.25!important; font-size:inherit!important; font-weight:inherit!important; font-style:inherit!important; text-align:inherit!important; max-width:100%; box-sizing:border-box; }
+      #zpt-bilingual .bi-paper .bi-row { min-width:0; box-sizing:border-box; overflow:auto; }
       #zpt-bilingual .bi-paper .bi-columns { display:block }
       #zpt-bilingual .bi-paper img { position:absolute; display:block; width:100%; object-fit:contain }
       #zpt-bilingual .bi-paper .bi-structured-table { position:absolute; margin:0; max-width:none }
@@ -62,6 +63,13 @@ export class PageLayout {
         row.style.removeProperty("font-size");
         row.style.removeProperty("transform");
         row.style.removeProperty("transform-origin");
+        for (const property of [
+          "height",
+          "font-weight",
+          "font-style",
+          "text-align",
+        ])
+          row.style.removeProperty(property);
         delete row.dataset.previewCovered;
       }
       this.homes.clear();
@@ -220,7 +228,7 @@ export class PageLayout {
           if (!block?.anchors.length) continue;
           const rect = blockRect(block);
           const covered =
-            block.kind !== "caption" &&
+            (block.kind !== "caption" || !!block.originalRegion) &&
             figureRects.some((r) =>
               block.anchors.every((a) => {
                 const x = (a.rect[0] + a.rect[2]) / 2,
@@ -230,8 +238,10 @@ export class PageLayout {
             );
           row.dataset.previewCovered = String(covered);
           if (covered) continue;
-          row.style.fontSize =
-            Math.max(8, Math.min(22, block.fontSize || 10)) * scale + "px";
+          row.style.fontSize = (block.fontSize || 10) * scale + "px";
+          row.style.fontWeight = block.bold ? "700" : "400";
+          row.style.fontStyle = block.italic ? "italic" : "normal";
+          row.style.textAlign = "left";
           objects.push({ node: row, rect });
         }
         objects.sort((a, b) => b.rect[3] - a.rect[3] || a.rect[0] - b.rect[0]);
@@ -247,7 +257,11 @@ export class PageLayout {
             // Fit selectable text inside its original region without shifting
             // subsequent sections, figures or the original page footer.
             item.node.style.removeProperty("transform");
-            let low = 0.1;
+            item.node.style.removeProperty("height");
+            let low = Math.max(
+              5 * scale,
+              parseFloat(item.node.style.fontSize) * 0.65,
+            );
             let high = parseFloat(item.node.style.fontSize);
             if (item.node.getBoundingClientRect().height > height) {
               for (let n = 0; n < 12; n++) {
@@ -258,12 +272,14 @@ export class PageLayout {
                 else high = size;
               }
               item.node.style.fontSize = low + "px";
-              const measured = item.node.getBoundingClientRect().height;
-              if (measured > height + 0.5) {
-                item.node.style.transformOrigin = "top left";
-                item.node.style.transform = "scaleY(" + height / measured + ")";
-              }
             }
+            // Keep the original region; never squash glyphs or cover a neighbour.
+            // Exceptionally long translations remain selectable and scrollable.
+            item.node.style.height = height + "px";
+            item.node.title =
+              item.node.scrollHeight > height + 1
+                ? "译文较长，可在此区域滚动查看完整内容"
+                : "";
           }
         }
         page.style.height = baseHeight * scale + "px";

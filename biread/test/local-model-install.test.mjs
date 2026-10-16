@@ -25,7 +25,7 @@ await build({
         );
         b.onLoad({ filter: /.*/, namespace: "stub" }, (a) => ({
           contents: a.path.includes("prefs")
-            ? "export const setPref=(k,v)=>globalThis.saved=v;"
+            ? "export const setPref=(k,v)=>globalThis.saved=v; export const getPref=()=>globalThis.configured;"
             : a.path.includes("documentCache")
               ? 'export const cacheRoot=()=>"/cache";'
               : a.path.endsWith("localModel")
@@ -36,7 +36,7 @@ await build({
     },
   ],
 });
-const { installLocalModel } = await import(
+const { installLocalModel, ensureLocalModel } = await import(
   pathToFileURL(join(dir, "test.mjs"))
 );
 await rm(dir, { recursive: true, force: true });
@@ -140,4 +140,14 @@ test("parallel readers share one installation", async () => {
   assert.equal(a, b);
   await Promise.all([a, b]);
   assert.equal(count(), 1);
+});
+
+test("automatic setup skips configured models and shares the initial download", async () => {
+  const state = setup();
+  globalThis.configured = "existing";
+  await ensureLocalModel(() => {});
+  assert.equal(state(), 0);
+  globalThis.configured = undefined;
+  await Promise.all([ensureLocalModel(() => {}), ensureLocalModel(() => {})]);
+  assert.equal(state(), 1);
 });

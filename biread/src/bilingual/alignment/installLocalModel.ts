@@ -1,9 +1,27 @@
 import { cacheRoot } from "../cache/documentCache";
-import { setPref } from "../../utils/prefs";
+import { getPref, setPref } from "../../utils/prefs";
 import { runLocalModel } from "./localModel";
 import { installAssets } from "./installAssets";
 
 let installing: Promise<void> | undefined;
+let automaticAttempt: Promise<void> | undefined;
+
+export async function ensureLocalModel(status: (text: string) => void) {
+  if (getPref("bilingual.localModel.config")) return;
+  if (
+    Services.appinfo.OS !== "WINNT" ||
+    !Services.appinfo.XPCOMABI.startsWith("x86_64")
+  ) {
+    throw new Error("此系统暂不支持自动安装对齐模型，可手动绑定词组。");
+  }
+  // Share one attempt per application session; a failed download must not loop
+  // every time a user highlights. The explicit install button remains a retry.
+  if (!automaticAttempt) {
+    status("首次使用双语标注：自动下载本地模型（约 194 MB），完成后继续标注…");
+    automaticAttempt = installLocalModel(status);
+  }
+  await automaticAttempt;
+}
 
 async function sha256(path: string) {
   const input = Cc["@mozilla.org/network/file-input-stream;1"].createInstance(

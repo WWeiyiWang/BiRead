@@ -1,5 +1,5 @@
 import type { Block, Rect } from "../types";
-import { sameRegion, type PDFImage } from "../parser/pdfImages";
+import { blockRect, sameRegion, type PDFImage } from "../parser/pdfImages";
 import { graphicsRects, figureRegion } from "../parser/figureRegions";
 import { requestDeadline } from "../translation/requestDeadline";
 export async function figurePreviews(
@@ -12,7 +12,7 @@ export async function figurePreviews(
   const captions = blocks.filter(
     (b) =>
       b.pageIndex === pageIndex &&
-      b.kind === "caption" &&
+      (b.kind === "caption" || b.kind === "equation") &&
       !blocks.some((cell) => cell.table?.captionID === b.id),
   );
   if (!captions.length) return [];
@@ -28,12 +28,16 @@ export async function figurePreviews(
     images: PDFImage[] = [];
   for (const caption of captions) {
     if (cancelled()) break;
-    const rect = figureRegion(
-      caption,
-      graphics,
-      Array.from(page.view) as Rect,
-      blocks,
-    );
+    const rect = caption.originalRegion
+      ? caption.originalRegion.rect
+      : caption.kind === "equation"
+        ? (blockRect(caption).map((v, i) => v + (i < 2 ? -2 : 2)) as Rect)
+        : figureRegion(
+            caption,
+            graphics,
+            Array.from(page.view) as Rect,
+            blocks,
+          );
     if (!rect || images.some((image) => sameRegion(image.rect, rect))) continue;
     const viewport = page.getViewport(
       Components.utils.cloneInto({ scale: 2 }, win),

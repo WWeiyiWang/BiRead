@@ -17,6 +17,7 @@ export function readingOrder(chars: any[]): Glyph[] {
     if (!rect.every(Number.isFinite)) continue;
     result.push({
       text: c.u,
+      rotation: Number(c.rotation) || 0,
       rect,
       index: i,
       fontSize:
@@ -28,6 +29,27 @@ export function readingOrder(chars: any[]): Glyph[] {
       lineBreakAfter: !!c.lineBreakAfter,
       paragraphBreakAfter: !!c.paragraphBreakAfter,
     });
+  }
+  // Font runs (notably italic book titles) sometimes carry artificial breaks.
+  // Only join runs on the same physical baseline and with a small inline gap;
+  // never join separate columns or vertically separated paragraphs.
+  for (let i = 0; i + 1 < result.length; i++) {
+    const a = result[i],
+      b = result[i + 1];
+    const size = Math.min(a.fontSize || 10, b.fontSize || 10);
+    const gap = b.rect[0] - a.rect[2];
+    if (
+      (a.lineBreakAfter || a.paragraphBreakAfter) &&
+      !a.rotation &&
+      !b.rotation &&
+      Math.abs(a.rect[1] - b.rect[1]) < size * 0.25 &&
+      gap >= -size * 0.15 &&
+      gap < size * 0.8
+    ) {
+      a.lineBreakAfter = false;
+      a.paragraphBreakAfter = false;
+      if (gap > size * 0.18) a.spaceAfter = true;
+    }
   }
   return result;
 }
