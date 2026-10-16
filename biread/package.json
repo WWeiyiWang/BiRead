@@ -42,7 +42,7 @@
     "@eslint/js": "^9.39.1",
     "@types/chai": "^5.2.3",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^22.16.5",
+    "@types/node": "^26.6.4",
     "chokidar-cli": "^3.0.0",
     "concurrently": "^9.2.0",
     "cross-env": "^10.1.0",
