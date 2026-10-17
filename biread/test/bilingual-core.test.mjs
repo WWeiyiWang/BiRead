@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,7 +11,11 @@ const output = join(dir, "core.mjs");
 await build({
   stdin: {
     contents: [
+      'export * from "./src/bilingual/reader/figurePreviews";',
+      'export * from "./src/bilingual/ui/figureController";',
       'export * from "./src/bilingual/parser/originalRegions";',
+      'export * from "./src/bilingual/parser/layoutQuality";',
+      'export * from "./src/bilingual/parser/embedInlineMath";',
       'export * from "./src/bilingual/parser/pageContinuations";',
       'export * from "./src/bilingual/alignment/segmentAlignment";',
       'export * from "./src/bilingual/alignment/selectionMapping";',
@@ -742,7 +746,7 @@ test("figure crop follows caption graphics and excludes prose and page backgroun
     [0, 0, 600, 800],
     [caption, other],
   );
-  assert.deepEqual(crop, [40, 423, 250, 538]);
+  assert.deepEqual(crop, [40, 423, 250, 524]);
   assert.equal(
     core.figureRegion(caption, [], [0, 0, 600, 800], [caption]),
     undefined,
@@ -1404,4 +1408,777 @@ test("numbered formula is isolated from adjacent prose", () => {
   const blocks = core.segmentPage(glyphs, 0, "1", 800, { active: false });
   assert.equal(blocks.length, 3);
   assert.equal(blocks[1].kind, "equation");
+});
+
+test("figure labels stay in original graphic while caption and outside prose survive", () => {
+  const make = (id, source, kind, rect) => ({
+    id,
+    source,
+    kind,
+    pageIndex: 0,
+    anchors: [
+      { start: 0, end: source.length, charIndex: 0, pageIndex: 0, rect },
+    ],
+    segments: [],
+  });
+  const caption = make(
+    "cap",
+    "Fig. 1 | Seed carrier",
+    "caption",
+    [40, 80, 550, 90],
+  );
+  const label = make("label", "Flat-sawn", "paragraph", [80, 200, 140, 210]);
+  const legend = make(
+    "legend",
+    "Natural seeds Engineered seed carriers",
+    "paragraph",
+    [90, 180, 300, 190],
+  );
+  const prose = make(
+    "body",
+    "The processing steps are described below.",
+    "paragraph",
+    [40, 40, 550, 60],
+  );
+  const result = core.preserveOriginalRegions(
+    [label, legend, caption, prose],
+    [[40, 100, 550, 500]],
+    [0, 0, 600, 800],
+  );
+  assert.deepEqual(result, [caption, prose]);
+  assert.equal(caption.originalRegion.kind, "figure");
+  assert.ok(caption.originalRegion.rect[3] >= 500);
+});
+
+test("proportional numbered equation preserves superscript and subscript runs", () => {
+  const glyphs = [
+    {
+      text: "K ∝ Ebh κ /l (1)",
+      index: 0,
+      rect: [135, 540, 295, 549],
+      fontSize: 8,
+      paragraphBreakAfter: true,
+    },
+    {
+      text: "3",
+      index: 16,
+      rect: [170, 548, 174, 552],
+      fontSize: 5,
+      paragraphBreakAfter: true,
+    },
+    {
+      text: "c 2",
+      index: 17,
+      rect: [190, 539, 196, 551],
+      fontSize: 5,
+      paragraphBreakAfter: true,
+    },
+  ];
+  const blocks = core.segmentPage(glyphs, 2, "465", 800, { active: false });
+  const result = core.preserveOriginalRegions(blocks, [], [0, 0, 600, 800]);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].kind, "equation");
+  assert.ok(result[0].originalRegion.rect[3] >= 555);
+});
+
+test("fragmented small-type caption is copied with its figure without swallowing body", () => {
+  const make = (id, source, kind, rect, fontSize) => ({
+    id,
+    source,
+    kind,
+    fontSize,
+    pageIndex: 0,
+    segments: [],
+    anchors: [
+      { start: 0, end: source.length, charIndex: 0, pageIndex: 0, rect },
+    ],
+  });
+  const caption = make(
+    "cap",
+    "Fig. 2 | Curvature",
+    "caption",
+    [40, 175, 290, 235],
+    7,
+  );
+  const sub = make("sub", "YY 12", "paragraph", [260, 175, 290, 181], 5);
+  const tail = make(
+    "tail",
+    "followed by a stiffening region",
+    "paragraph",
+    [40, 137, 290, 175],
+    7,
+  );
+  const right = make(
+    "right",
+    "bending samples. Data are means",
+    "paragraph",
+    [306, 137, 557, 235],
+    7,
+  );
+  const body = make(
+    "body",
+    "The topology of the design",
+    "paragraph",
+    [40, 45, 295, 100],
+    8.25,
+  );
+  const result = core.preserveOriginalRegions(
+    [caption, sub, tail, right, body],
+    [[40, 238, 560, 740]],
+    [0, 0, 600, 800],
+  );
+  assert.deepEqual(result, [caption, body]);
+  assert.equal(caption.originalRegion.includesCaption, true);
+  assert.ok(caption.source.includes("followed by a stiffening region"));
+  assert.ok(caption.source.includes("bending samples"));
+  assert.ok(caption.segments.length > 0);
+  assert.ok(caption.originalRegion.rect[1] <= 137);
+});
+
+test("Nature numbered references merge continuations before Methods and supplements", () => {
+  const texts = [
+    "Conclusion",
+    "1. Fisher, K. A. A study",
+    "Journal 10 (2011).",
+    "2. Ball, B. C. Another study (1986).",
+    "3. Kelly, L. T. Study (2020).",
+    "Publisher’s note Neutrality.",
+    "Methods",
+    "Fabrication details.",
+    "Supplementary material",
+  ];
+  const blocks = texts.map((source, i) => ({
+    ...block(source),
+    id: String(i),
+    kind: "paragraph",
+    pageIndex: i < 6 ? 6 : 8,
+  }));
+  blocks.push({ ...block("Extended data"), pageIndex: 22 });
+  core.identifyReferences(blocks);
+  const first = blocks.find((b) => b.source.startsWith("1."));
+  assert.equal(first.kind, "reference");
+  assert.ok(first.source.endsWith("Journal 10 (2011)."));
+  assert.equal(blocks.find((b) => b.source === "Methods").kind, "paragraph");
+  assert.equal(
+    blocks.find((b) => b.source.startsWith("Publisher")).kind,
+    "paragraph",
+  );
+  assert.equal(blocks.filter((b) => b.kind === "reference").length, 3);
+});
+
+test("inline fraction scripts copy as one region and retain adjacent prose", () => {
+  const make = (id, source, rects) => ({
+    ...block(source),
+    id,
+    kind: "paragraph",
+    pageIndex: 2,
+    anchors: [...source].map((c, i) => ({
+      start: i,
+      end: i + 1,
+      charIndex: Number(id) * 100 + i,
+      pageIndex: 2,
+      rect: rects[i] || [500 + i * 4, 389, 504 + i * 4, 397],
+    })),
+  });
+  const k = make("1", "κ", [[437, 386, 440, 392]]);
+  const h = make("2", "hh′", [
+    [455, 394, 459, 400],
+    [454, 386, 458, 392],
+    [458, 386, 460, 392],
+  ]);
+  const d = make("3", "d", [[441, 393, 444, 398]]);
+  const tail = make("4", "w, in which h is thickness", [[441, 385, 445, 390]]);
+  const result = core.preserveOriginalRegions(
+    [k, h, d, tail],
+    [],
+    [0, 0, 600, 800],
+  );
+  assert.equal(result.filter((b) => b.kind === "equation").length, 1);
+  assert.equal(result.filter((b) => b.kind === "paragraph").length, 1);
+  assert.equal(tail.source, ", in which h is thickness");
+  assert.ok(k.originalRegion.rect[0] <= 437 && k.originalRegion.rect[2] >= 460);
+  assert.ok(!result.some((b) => b.source === "d" || b.source === "hh′"));
+});
+
+test("inline original math remains inside prose and survives translation protection", () => {
+  const make = (id, source, rect) => ({
+    ...block(source),
+    id,
+    kind: "paragraph",
+    pageIndex: 0,
+    anchors: [
+      { start: 0, end: source.length, charIndex: 0, pageIndex: 0, rect },
+    ],
+  });
+  const before = make("before", "The curvature is", [10, 100, 80, 110]);
+  const math = {
+    ...make("math", "κ h", [82, 99, 100, 112]),
+    kind: "equation",
+    originalRegion: { kind: "equation", rect: [82, 99, 100, 112] },
+  };
+  const after = make("after", ", where h is thickness.", [102, 100, 180, 110]);
+  const result = core.embedInlineMath([before, math, after]);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].inlineMath.length, 1);
+  assert.ok(result[0].source.endsWith(after.source));
+  const protectedText = core.protectText(result[0].source);
+  assert.equal(protectedText.restore(protectedText.text), result[0].source);
+  assert.equal(
+    result[0].anchors[1].start,
+    result[0].source.indexOf(after.source),
+  );
+});
+
+test("two-column author cards are metadata, not section headings or body", () => {
+  const make = (id, source, kind, y) => ({
+    ...block(source),
+    id,
+    kind,
+    pageIndex: 0,
+    anchors: [
+      {
+        start: 0,
+        end: source.length,
+        charIndex: 0,
+        pageIndex: 0,
+        rect: [80, y, 250, y + 10],
+      },
+    ],
+  });
+  const blocks = [
+    make("t", "A Computational Framework", "title", 700),
+    make("n", "Jeremy Chen", "heading", 650),
+    make("d", "Mechanical Engineering, Morphing Matter Lab", "paragraph", 630),
+    make("u", "University of California, Berkeley", "paragraph", 610),
+    make("e", "Berkeley, USA author@example.edu", "paragraph", 590),
+    make("a", "Abstract", "heading", 400),
+    make("p", "We study mechanical engineering design.", "paragraph", 380),
+  ];
+  core.identifyFrontMatter(blocks);
+  assert.deepEqual(
+    blocks.slice(1, 5).map((b) => b.kind),
+    Array(4).fill("author-info"),
+  );
+  assert.equal(blocks[6].kind, "paragraph");
+});
+
+test("private-font matrix fragments stay one inline object alongside prose", () => {
+  const make = (id, source, rect) => ({
+    ...block(source),
+    id,
+    kind: "paragraph",
+    pageIndex: 0,
+    anchors: [
+      {
+        start: 0,
+        end: source.length,
+        charIndex: Number(id) * 100,
+        pageIndex: 0,
+        rect,
+      },
+    ],
+  });
+  const blocks = [
+    make("0", "The rest shape is", [100, 140, 200, 150]),
+    make("1", "𝜆²", [202, 140, 220, 150]),
+    make("2", "\ue012cos 𝜃 sin 𝜃", [222, 137, 248, 158]),
+    make("3", "\ue013𝑇", [250, 150, 256, 159]),
+    make("4", ", where the tensor is defined.", [258, 140, 350, 150]),
+  ];
+  const result = core.preserveOriginalRegions(blocks, [], [0, 0, 600, 800]);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].kind, "paragraph");
+  assert.equal(result[0].inlineMath.length, 1);
+  assert.ok(!/[\ue000-\uf8ff]/.test(result[0].source));
+  assert.ok(result[0].source.endsWith("where the tensor is defined."));
+});
+
+test("quality gate rejects unreadable text and fragmented math without sending garbage to translation", () => {
+  const b = [{ ...block("\ue012cos θ"), kind: "paragraph", anchors: [] }];
+  assert.ok(
+    core
+      .auditLayout(
+        [{ text: "x", index: 0, rect: [0, 0, 2, 2] }],
+        b,
+        [0, 0, 600, 800],
+      )
+      .includes("unreadable-glyphs"),
+  );
+  assert.ok(
+    core
+      .auditLayout(
+        [{ text: "x", index: 0, rect: [0, 0, 2, 2] }],
+        [
+          { ...block("κ"), kind: "paragraph" },
+          { ...block("sin θ"), kind: "paragraph" },
+        ],
+        [0, 0, 600, 800],
+      )
+      .includes("fragmented-math"),
+  );
+  const fallback = core.originalPage(
+    2,
+    "465",
+    [0, 0, 600, 800],
+    ["fragmented-math"],
+  );
+  assert.equal(fallback.kind, "original-page");
+  assert.equal(fallback.source, "");
+  assert.equal(fallback.segments.length, 0);
+  assert.deepEqual(fallback.originalRegion.rect, [0, 0, 600, 800]);
+});
+test("quality gate accounts for original-region and inline-image glyph coverage", () => {
+  const glyphs = Array.from({ length: 12 }, (_, i) => ({
+    text: "x",
+    index: i,
+    rect: [i * 3, 10, i * 3 + 2, 20],
+  }));
+  assert.ok(
+    core.auditLayout(glyphs, [], [0, 0, 600, 800]).includes("missing-text"),
+  );
+  const preserved = {
+    ...block(""),
+    kind: "equation",
+    anchors: [],
+    originalRegion: { kind: "equation", rect: [0, 9, 40, 21] },
+  };
+  assert.deepEqual(core.auditLayout(glyphs, [preserved], [0, 0, 600, 800]), []);
+  const inline = {
+    ...block("The result is $BIREAD_MATH_math$"),
+    kind: "paragraph",
+    anchors: [],
+    inlineMath: [
+      { id: "math", token: "$BIREAD_MATH_math$", rect: [0, 9, 40, 21] },
+    ],
+  };
+  assert.deepEqual(core.auditLayout(glyphs, [inline], [0, 0, 600, 800]), []);
+});
+test("quality gate preserves scanned pages and rejects malformed crop rectangles", () => {
+  assert.deepEqual(core.auditLayout([], [], [0, 0, 600, 800]), ["no-text"]);
+  const b = {
+    ...block(""),
+    kind: "equation",
+    anchors: [],
+    originalRegion: { kind: "equation", rect: [10, 10, 9, 20] },
+  };
+  assert.ok(
+    core
+      .auditLayout(
+        [{ text: "x", index: 0, rect: [0, 0, 2, 2] }],
+        [b],
+        [0, 0, 600, 800],
+      )
+      .includes("invalid-region"),
+  );
+});
+
+test("quality gate detects a figure label leaking into body text", () => {
+  const glyphs = [{ text: "label", index: 0, rect: [10, 10, 20, 20] }];
+  const figure = {
+    ...block("Figure 1"),
+    kind: "caption",
+    anchors: [],
+    originalRegion: { kind: "figure", rect: [0, 0, 100, 100] },
+  };
+  const body = {
+    ...block("Label"),
+    kind: "paragraph",
+    anchors: [
+      { start: 0, end: 5, charIndex: 0, pageIndex: 0, rect: [10, 10, 20, 20] },
+    ],
+  };
+  assert.ok(
+    core
+      .auditLayout(glyphs, [figure, body], [0, 0, 600, 800])
+      .includes("overlapping-regions"),
+  );
+});
+
+test("small-cap Roman chapters, alphabetic subsections and compact decimal headings retain hierarchy", () => {
+  const blocks = [
+    { ...block("Body prose ".repeat(40)), fontSize: 10 },
+    { ...block("I. INTRODUCTION"), fontSize: 8 },
+    { ...block("II. RELATED WORK"), fontSize: 8 },
+    { ...block("A. First Approach"), fontSize: 10 },
+    { ...block("C. Another Approach"), fontSize: 10 },
+    { ...block("D. Implementation"), fontSize: 10 },
+    { ...block("1.Introduction"), kind: "list", fontSize: 10 },
+    { ...block("2.3.1 Detailed Model"), fontSize: 10 },
+  ].map((b, i) => ({ ...b, id: String(i), pageIndex: 1 }));
+  core.inferHierarchy(blocks);
+  core.assignSections(blocks);
+  assert.deepEqual(
+    blocks.slice(1).map((b) => [b.kind, b.headingLevel]),
+    [
+      ["heading", 1],
+      ["heading", 1],
+      ["heading", 2],
+      ["heading", 2],
+      ["heading", 2],
+      ["heading", 1],
+      ["heading", 3],
+    ],
+  );
+  assert.deepEqual(blocks[4].sectionPath, [
+    "II. RELATED WORK",
+    "C. Another Approach",
+  ]);
+});
+
+test("two authors before an inline abstract and numbered affiliations are author metadata", () => {
+  const blocks = [
+    { ...block("A Paper Title"), kind: "title" },
+    block("Anna Smith1 and Ben Jones2"),
+    { ...block("Abstract— We introduce a method."), kind: "abstract" },
+    block(
+      "1Department of Engineering, University of Somewhere, contact@example.org",
+    ),
+  ];
+  core.identifyFrontMatter(blocks);
+  assert.equal(blocks[1].kind, "author-info");
+  assert.equal(blocks[3].kind, "author-info");
+  assert.equal(blocks[2].kind, "abstract");
+});
+
+test("composite figure includes side panels beyond a narrow centred caption", () => {
+  const caption = {
+    ...block("Fig. 3. Composite experiment"),
+    kind: "caption",
+    anchors: [{ rect: [220, 400, 380, 410] }],
+  };
+  const r = core.figureRegion(
+    caption,
+    [
+      [40, 430, 160, 570],
+      [180, 430, 420, 570],
+      [440, 430, 560, 570],
+    ],
+    [0, 0, 600, 800],
+    [caption],
+  );
+  assert.ok(r[0] < 40 && r[2] > 560);
+});
+
+test("matrix to the right of an equation absorbs its closing bracket as one crop", () => {
+  const blocks = [
+    {
+      ...block("TCPj = TCP0"),
+      kind: "equation",
+      anchors: [{ rect: [388, 159, 444, 170] }],
+    },
+    { ...block("[R j t j 01"), anchors: [{ rect: [445, 154, 477, 184] }] },
+    { ...block("]"), anchors: [{ rect: [477, 174, 483, 184] }] },
+    {
+      ...block("Following body prose remains separate."),
+      anchors: [{ rect: [313, 100, 558, 139] }],
+    },
+  ].map((b, i) => ({ ...b, id: String(i), fontSize: 10 }));
+  const out = core.preserveOriginalRegions(blocks, [], [0, 0, 612, 792]);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].kind, "equation");
+  assert.ok(out[0].originalRegion.rect[2] >= 483);
+  assert.equal(out[1].kind, "paragraph");
+});
+
+test("conference banner, ISBN footer and vertical copyright are furniture; body citations survive", () => {
+  const lines = [
+    ["2024 33rd International Conference on Robotics", [54, 756, 300, 764]],
+    ["Interactive Communication, August 26–30", [54, 746, 300, 754]],
+    ["Pasadena, California, USA.", [54, 736, 300, 744]],
+    ["979-8-1234-5678-9/24/$31.00 ©2024 IEEE 438", [54, 34, 313, 42]],
+    ["Proceedings | ©2024 IEEE | DOI: 10.1109/example", [12, 78, 20, 713]],
+    ["Our conference results are discussed in the body.", [54, 300, 300, 310]],
+  ];
+  const glyphs = lines.map(([text, rect], index) => ({
+    text,
+    rect,
+    index,
+    fontSize: 8,
+    lineBreakAfter: true,
+    paragraphBreakAfter: index >= 2,
+    rotation: index === 4 ? 90 : 0,
+  }));
+  const out = core.removePageFurniture([{ glyphs, box: [0, 0, 612, 792] }]);
+  assert.deepEqual(
+    out[0].glyphs.map((g) => g.text),
+    [lines[5][0]],
+  );
+});
+
+test("many equation crops render a page once and propagate render failures", async () => {
+  globalThis.Components = {
+    utils: {
+      waiveXrays: (x) => x,
+      cloneInto: (x) => x,
+      createObjectIn: () => ({}),
+    },
+  };
+  let renders = 0,
+    crops = 0,
+    reject = false;
+  const win = {
+    document: {
+      createElement: () => ({
+        width: 0,
+        height: 0,
+        getContext: () => ({
+          drawImage() {
+            crops++;
+          },
+        }),
+        toDataURL: () => "data:image/png;base64,AA==",
+      }),
+    },
+  };
+  const pdf = {
+    getPage: async () => ({
+      view: [0, 0, 600, 800],
+      getViewport: ({ scale }) => ({
+        width: 600 * scale,
+        height: 800 * scale,
+        convertToViewportRectangle: (r) => r.map((v) => v * scale),
+      }),
+      render: () => {
+        renders++;
+        return {
+          promise: reject
+            ? Promise.reject(Error("render failed"))
+            : new Promise((r) => setTimeout(r, 5)),
+          cancel() {},
+        };
+      },
+    }),
+  };
+  const blocks = Array.from({ length: 12 }, (_, i) => ({
+    ...block("x = y"),
+    id: String(i),
+    pageIndex: 0,
+    kind: "equation",
+    originalRegion: {
+      kind: "equation",
+      rect: [100, 100 + i * 30, 300, 120 + i * 30],
+    },
+  }));
+  assert.equal(
+    (await core.figurePreviews(pdf, win, 0, blocks, () => false)).length,
+    12,
+  );
+  assert.equal(renders, 1);
+  assert.equal(crops, 12);
+  reject = true;
+  await assert.rejects(
+    core.figurePreviews(pdf, win, 0, blocks, () => false),
+    /render failed/,
+  );
+});
+
+test("preview controller reports missing equations and retries without showing figure components", async () => {
+  globalThis.Zotero = { logError() {} };
+  const element = () => ({
+    dataset: {},
+    textContent: "",
+    children: [],
+    append(e) {
+      this.children.push(e);
+    },
+    remove() {
+      this.removed = true;
+    },
+  });
+  const slot = element(),
+    shown = [];
+  const ui = {
+    doc: { defaultView: {}, createElement: element },
+    root: { querySelectorAll: () => [] },
+    imageLoader: () => slot,
+    showImage: (i) => shown.push(i),
+  };
+  const blocks = [
+    { ...block("x = y"), id: "eq", kind: "equation", pageIndex: 0 },
+  ];
+  let images = [];
+  const integration = {
+    pdf: {
+      getFigures: async () => images,
+      getImages: async () => ({ images: [], skipped: 0 }),
+    },
+  };
+  const controller = new core.FigureController(ui, integration, blocks);
+  await controller.loadPage(0);
+  assert.match(slot.textContent, /未完成/);
+  assert.equal(slot.removed, undefined);
+  images = [{ captionID: "eq", rect: [0, 0, 20, 20] }];
+  slot.children.at(-1).onclick();
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(slot.removed, true);
+  assert.equal(shown.length, 1);
+  controller.dispose();
+  const cap = {
+    ...block("Fig. 1. Experiment"),
+    id: "fig",
+    kind: "caption",
+    pageIndex: 1,
+  };
+  let embedded = 0;
+  const fc = new core.FigureController(
+    ui,
+    {
+      pdf: {
+        getFigures: async () => [{ captionID: "fig", rect: [0, 0, 100, 100] }],
+        getImages: async () => {
+          embedded++;
+          return { images: [], skipped: 0 };
+        },
+      },
+    },
+    [cap],
+  );
+  await fc.loadPage(1);
+  assert.equal(embedded, 0);
+  fc.dispose();
+});
+
+test("discarded hyphens retain column boundaries and PDF font names supply missing styles", () => {
+  const chars = [
+    {
+      u: "self",
+      rect: [270, 60, 294, 70],
+      fontSize: 10,
+      fontName: "NimbusRomNo9L-Regu",
+    },
+    {
+      u: "-",
+      rect: [294, 60, 298, 70],
+      fontSize: 10,
+      ignorable: true,
+      paragraphBreakAfter: true,
+      lineBreakAfter: true,
+    },
+    {
+      u: "Fig. 1. Overview",
+      rect: [313, 550, 500, 558],
+      fontSize: 8,
+      fontName: "ABCDEF+LinLibertineTB",
+      lineBreakAfter: true,
+      paragraphBreakAfter: true,
+    },
+  ];
+  const glyphs = core.readingOrder(chars);
+  assert.equal(glyphs[0].paragraphBreakAfter, true);
+  assert.equal(glyphs[1].bold, true);
+  const blocks = core.segmentPage(glyphs, 1, "2", 800, { active: false });
+  assert.equal(blocks.length, 2);
+  assert.equal(blocks[1].kind, "caption");
+});
+
+test("wrapped subsection heading remains one outline entry", () => {
+  const bs = [
+    { ...block("Body prose ".repeat(40)), fontSize: 9 },
+    {
+      ...block("6.3 Weather-Triggered Garden Wildlife Water"),
+      bold: true,
+      fontSize: 11,
+      anchors: [{ rect: [318, 120, 550, 130] }],
+    },
+    {
+      ...block("Collector"),
+      bold: true,
+      fontSize: 11,
+      anchors: [{ rect: [342, 107, 390, 117] }],
+    },
+  ].map((b, i) => ({ ...b, id: String(i), pageIndex: 1 }));
+  core.inferHierarchy(bs);
+  assert.equal(bs.length, 2);
+  assert.equal(bs[1].headingLevel, 2);
+  assert.equal(
+    bs[1].source,
+    "6.3 Weather-Triggered Garden Wildlife Water Collector",
+  );
+});
+
+test("caption and following same-size prose remain separate when PDF font styles differ", () => {
+  const caption = {
+    ...block("Figure 11: Overview of the inverse pipeline."),
+    id: "cap",
+    kind: "caption",
+    bold: true,
+    fontSize: 9,
+    anchors: [{ rect: [54, 250, 294, 300] }],
+  };
+  const paragraph = {
+    ...block(
+      "To evaluate the accuracy of the fabricated models, we adopt the geodesic distance method and calculate errors.",
+    ),
+    id: "body",
+    fontSize: 9,
+    bold: false,
+    anchors: [{ rect: [54, 200, 294, 245] }],
+  };
+  const out = core.preserveOriginalRegions(
+    [caption, paragraph],
+    [[54, 320, 294, 410]],
+    [0, 0, 612, 792],
+  );
+  assert.equal(out.length, 2);
+  assert.equal(out[1].source, paragraph.source);
+  assert.ok(out[0].originalRegion.rect[1] > 300);
+});
+
+test("inline formula crops own all of their native PDF glyphs, including delayed operators", async () => {
+  const bs = JSON.parse(
+    await readFile(
+      new URL("./fixtures/inline-math-runs.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const out = core.preserveOriginalRegions(bs, [], [0, 0, 600, 800]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, "paragraph");
+  assert.equal(out[0].inlineMath.length, 1);
+  assert.match(
+    out[0].source,
+    /^in which \$BIREAD_MATH_[^$]+\$ and κ and y1 are given by$/,
+  );
+  assert.doesNotMatch(out[0].source, /[=+]/);
+});
+
+test("a delayed inline subscript and its following prose remain in the original sentence", () => {
+  const prose = "The curve follows the relation with ε = 0.025";
+  const start = prose.indexOf("ε");
+  const anchors = Array.from(prose, (c, i) => ({
+    start: i,
+    end: i + 1,
+    charIndex: i,
+    pageIndex: 0,
+    rect: [
+      i < start ? 200 - (start - i) * 3 : 200 + (i - start) * 5,
+      400,
+      i < start ? 203 - (start - i) * 3 : 205 + (i - start) * 5,
+      410,
+    ],
+  }));
+  const next = "Y1, which is validated experimentally.";
+  const nextAnchors = Array.from(next, (c, i) => ({
+    start: i,
+    end: i + 1,
+    charIndex: 100 + i,
+    pageIndex: 0,
+    rect:
+      i < 2
+        ? [205 + i * 3, 397, 208 + i * 3, 404]
+        : [255 + (i - 2) * 2, 400, 257 + (i - 2) * 2, 410],
+  }));
+  const out = core.preserveOriginalRegions(
+    [
+      { ...block(prose), id: "a", anchors, fontSize: 10 },
+      { ...block(next), id: "b", anchors: nextAnchors, fontSize: 10 },
+    ],
+    [],
+    [0, 0, 600, 800],
+  );
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, "paragraph");
+  assert.equal(out[0].inlineMath.length, 1);
+  assert.match(out[0].source, /which is validated experimentally/);
+  assert.doesNotMatch(out[0].source, /Y1/);
 });

@@ -6,6 +6,29 @@ export function readingOrder(chars: any[]): Glyph[] {
   const result: Glyph[] = [];
   for (let i = 0; i < chars.length; i++) {
     const c = chars[i];
+    if (c.ignorable && (c.lineBreakAfter || c.paragraphBreakAfter)) {
+      const previous = result[result.length - 1];
+      let j = i + 1;
+      while (
+        j < chars.length &&
+        (chars[j].ignorable || !chars[j].rect || typeof chars[j].u !== "string")
+      )
+        j++;
+      const next = chars[j];
+      // Ignoring a discretionary hyphen must not erase a column/caption break.
+      // Within a continuous prose column the word still joins without a space.
+      if (
+        previous &&
+        next &&
+        (next.rect[1] > previous.rect[3] ||
+          next.rect[0] > previous.rect[2] + (previous.fontSize || 10) ||
+          Math.abs((next.fontSize || 0) - (previous.fontSize || 0)) >
+            (previous.fontSize || 10) * 0.18)
+      ) {
+        previous.lineBreakAfter = true;
+        previous.paragraphBreakAfter = true;
+      }
+    }
     if (
       c.ignorable ||
       typeof c.u !== "string" ||
@@ -23,8 +46,14 @@ export function readingOrder(chars: any[]): Glyph[] {
       fontSize:
         Number(c.fontSize) ||
         Math.abs((c.inlineRect || rect)[3] - (c.inlineRect || rect)[1]),
-      bold: !!c.bold,
-      italic: !!c.italic,
+      bold:
+        !!c.bold ||
+        /bold|demi|semibold|[-]Medi(?:tal)?(?:$|[-])|LibertineT(?:B|BI)$/i.test(
+          c.fontName || "",
+        ),
+      italic:
+        !!c.italic ||
+        /italic|oblique|[-]Ital|LibertineT(?:I|BI)$/i.test(c.fontName || ""),
       spaceAfter: !!c.spaceAfter,
       lineBreakAfter: !!c.lineBreakAfter,
       paragraphBreakAfter: !!c.paragraphBreakAfter,

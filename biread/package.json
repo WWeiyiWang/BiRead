@@ -1,6 +1,6 @@
 {
   "name": "biread-zotero",
-  "version": "0.1.15-beta",
+  "version": "0.1.24-beta",
   "description": "Bilingual PDF Reader for Zotero",
   "config": {
     "addonName": "BiRead — Bilingual PDF Reader for Zotero",

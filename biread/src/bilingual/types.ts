@@ -28,6 +28,7 @@ export interface Segment {
   translationEnd?: number;
 }
 export type BlockKind =
+  | "original-page"
   | "author-info"
   | "publication-info"
   | "table-cell"
@@ -41,8 +42,14 @@ export type BlockKind =
   | "reference"
   | "footnote";
 export interface Block {
+  layoutIssues?: string[];
+  inlineMath?: { id: string; token: string; rect: Rect }[];
   rotation?: number;
-  originalRegion?: { kind: "equation" | "table"; rect: Rect };
+  originalRegion?: {
+    kind: "equation" | "table" | "figure" | "page";
+    rect: Rect;
+    includesCaption?: boolean;
+  };
   id: string;
   kind: BlockKind;
   headingLevel?: number;
@@ -78,7 +85,7 @@ export interface PageFurniture {
   glyphs: Glyph[];
   rules: Rect[];
 }
-export const DOCUMENT_PARSER_VERSION = 12;
+export const DOCUMENT_PARSER_VERSION = 21;
 export interface DocumentData {
   version: 1;
   parserVersion?: number;

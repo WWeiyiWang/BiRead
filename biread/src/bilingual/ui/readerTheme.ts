@@ -37,4 +37,10 @@ export const readerTheme = `
  #zpt-bilingual .bi-text { padding-left:12px; padding-right:12px; }
  #zpt-bilingual .bi-mode-row select { max-width:100%; }
 }
+#zpt-bilingual[data-reading-mode=immersive] .bi-row[data-kind=reference] > .bi-columns { display:block; }
+#zpt-bilingual[data-reading-mode=immersive] .bi-row[data-kind=reference] .bi-source { display:block; border:0; }
+#zpt-bilingual[data-reading-mode=immersive] .bi-row[data-kind=reference] .bi-translation { display:none; }
+
+#zpt-bilingual .bi-row[data-kind="original-page"] .bi-figure img { max-height:none; width:min(100%,800px); height:auto; }
+#zpt-bilingual .bi-layout-notice { padding:12px; background:#fff8e8; border-left:3px solid #c9b89a; color:#554d40; font:14px/1.6 system-ui; }
 `;

@@ -85,6 +85,37 @@ export class FigureController {
       );
       if (cancelled()) return;
       for (const figure of figures) this.ui.showImage(figure, this.blocks);
+      const pageBlocks = this.blocks.filter((b) => b.pageIndex === page);
+      const required = pageBlocks.flatMap((b) => [
+        ...(["equation", "original-page"].includes(b.kind) ||
+        (b.kind === "caption" &&
+          !this.blocks.some((cell) => cell.table?.captionID === b.id))
+          ? [b.id]
+          : []),
+        ...(b.inlineMath || []).map((m) => m.id),
+      ]);
+      const missingIDs = required.filter(
+        (id) => !figures.some((f) => f.captionID === id),
+      );
+      if (missingIDs.length)
+        throw new Error(
+          "Original regions not rendered: " + missingIDs.join(", "),
+        );
+      if (
+        this.blocks.some(
+          (b) => b.pageIndex === page && b.kind === "original-page",
+        )
+      ) {
+        if (!figures.length) throw new Error("Original page render failed");
+        slot.remove();
+        return;
+      }
+      // Embedded PDF images are component assets, not logical figures. On a
+      // captioned page only the caption-owned composite crops may be displayed.
+      if (pageBlocks.some((b) => b.kind === "caption")) {
+        slot.remove();
+        return;
+      }
       const result = await requestDeadline<{
         images: PDFImage[];
         skipped: number;
@@ -118,10 +149,15 @@ export class FigureController {
         slot.textContent =
           "部分图表未能可靠定位或提取，可使用图注旁的 OPEN IN PDF 查看。";
       else slot.remove();
-    } catch {
+    } catch (error) {
+      Zotero.logError(error as Error);
       expired = true;
       if (!this.disposed) {
-        slot.textContent = "图片加载未完成，正文翻译不受影响。";
+        slot.textContent = this.blocks.some(
+          (b) => b.pageIndex === page && b.kind === "original-page",
+        )
+          ? "原页加载失败，请重试或使用原文定位打开 PDF。"
+          : "图片加载未完成，可重试或在原 PDF 中查看。";
         const button = this.ui.doc.createElement("button");
         button.textContent = "重试图片";
         button.onclick = () => {

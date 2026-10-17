@@ -1,0 +1,860 @@
+[
+  {
+    "id": "p9-c3617",
+    "kind": "equation",
+    "pageIndex": 9,
+    "pageLabel": "10",
+    "pageHeight": 790.866,
+    "source": "in which = +",
+    "anchors": [
+      {
+        "start": 0,
+        "end": 1,
+        "pageIndex": 9,
+        "charIndex": 3617,
+        "rect": [
+          306.142,
+          550.34,
+          308.501,
+          558.557
+        ]
+      },
+      {
+        "start": 1,
+        "end": 2,
+        "pageIndex": 9,
+        "charIndex": 3618,
+        "rect": [
+          308.501,
+          550.34,
+          313.426,
+          558.557
+        ]
+      },
+      {
+        "start": 3,
+        "end": 4,
+        "pageIndex": 9,
+        "charIndex": 3619,
+        "rect": [
+          314.73,
+          550.34,
+          320.934,
+          558.557
+        ]
+      },
+      {
+        "start": 4,
+        "end": 5,
+        "pageIndex": 9,
+        "charIndex": 3620,
+        "rect": [
+          320.934,
+          550.34,
+          325.867,
+          558.557
+        ]
+      },
+      {
+        "start": 5,
+        "end": 6,
+        "pageIndex": 9,
+        "charIndex": 3621,
+        "rect": [
+          325.867,
+          550.34,
+          328.227,
+          558.557
+        ]
+      },
+      {
+        "start": 6,
+        "end": 7,
+        "pageIndex": 9,
+        "charIndex": 3622,
+        "rect": [
+          328.227,
+          550.34,
+          332.451,
+          558.557
+        ]
+      },
+      {
+        "start": 7,
+        "end": 8,
+        "pageIndex": 9,
+        "charIndex": 3623,
+        "rect": [
+          332.451,
+          550.34,
+          337.384,
+          558.557
+        ]
+      },
+      {
+        "start": 9,
+        "end": 10,
+        "pageIndex": 9,
+        "charIndex": 3624,
+        "rect": [
+          348.11,
+          550.011,
+          352.937,
+          558.329
+        ]
+      },
+      {
+        "start": 11,
+        "end": 12,
+        "pageIndex": 9,
+        "charIndex": 3625,
+        "rect": [
+          363.661,
+          550.011,
+          368.472,
+          558.329
+        ]
+      }
+    ],
+    "rotation": 0,
+    "fontSize": 8.25,
+    "bold": false,
+    "italic": false,
+    "segments": [
+      {
+        "id": "p9-c3617-s1",
+        "sourceStart": 0,
+        "sourceEnd": 12,
+        "source": "in which = +"
+      }
+    ]
+  },
+  {
+    "id": "p9-c3626",
+    "kind": "paragraph",
+    "pageIndex": 9,
+    "pageLabel": "10",
+    "pageHeight": 790.866,
+    "source": "y h",
+    "anchors": [
+      {
+        "start": 0,
+        "end": 1,
+        "pageIndex": 9,
+        "charIndex": 3626,
+        "rect": [
+          339.758,
+          556.193,
+          342.586,
+          561.93
+        ]
+      },
+      {
+        "start": 2,
+        "end": 3,
+        "pageIndex": 9,
+        "charIndex": 3627,
+        "rect": [
+          340.622,
+          547.553,
+          344.049,
+          553.29
+        ]
+      }
+    ],
+    "rotation": 0,
+    "fontSize": 5.760000220000052,
+    "bold": false,
+    "italic": true,
+    "segments": [
+      {
+        "id": "p9-c3626-s1",
+        "sourceStart": 0,
+        "sourceEnd": 3,
+        "source": "y h"
+      }
+    ]
+  },
+  {
+    "id": "p9-c3628",
+    "kind": "paragraph",
+    "pageIndex": 9,
+    "pageLabel": "10",
+    "pageHeight": 790.866,
+    "source": "y h",
+    "anchors": [
+      {
+        "start": 0,
+        "end": 1,
+        "pageIndex": 9,
+        "charIndex": 3628,
+        "rect": [
+          355.886,
+          556.193,
+          358.714,
+          561.93
+        ]
+      },
+      {
+        "start": 2,
+        "end": 3,
+        "pageIndex": 9,
+        "charIndex": 3629,
+        "rect": [
+          356.462,
+          547.553,
+          359.889,
+          553.29
+        ]
+      }
+    ],
+    "rotation": 0,
+    "fontSize": 5.760000220000052,
+    "bold": false,
+    "italic": true,
+    "segments": [
+      {
+        "id": "p9-c3628-s1",
+        "sourceStart": 0,
+        "sourceEnd": 3,
+        "source": "y h"
+      }
+    ]
+  },
+  {
+    "id": "p9-c3630",
+    "kind": "paragraph",
+    "pageIndex": 9,
+    "pageLabel": "10",
+    "pageHeight": 790.866,
+    "source": "ϵ κh",
+    "anchors": [
+      {
+        "start": 0,
+        "end": 1,
+        "pageIndex": 9,
+        "charIndex": 3630,
+        "rect": [
+          370.862,
+          557.633,
+          373.586,
+          563.37
+        ]
+      },
+      {
+        "start": 2,
+        "end": 3,
+        "pageIndex": 9,
+        "charIndex": 3631,
+        "rect": [
+          372.014,
+          547.553,
+          375.038,
+          553.29
+        ]
+      },
+      {
+        "start": 3,
+        "end": 4,
+        "pageIndex": 9,
+        "charIndex": 3632,
+        "rect": [
+          375.182,
+          547.553,
+          378.609,
+          553.29
+        ]
+      }
+    ],
+    "rotation": 0,
+    "fontSize": 5.760000220000052,
+    "bold": false,
+    "italic": true,
+    "segments": [
+      {
+        "id": "p9-c3630-s1",
+        "sourceStart": 0,
+        "sourceEnd": 4,
+        "source": "ϵ κh"
+      }
+    ]
+  },
+  {
+    "id": "p9-c3633",
+    "kind": "equation",
+    "pageIndex": 9,
+    "pageLabel": "10",
+    "pageHeight": 790.866,
+    "source": "2 1 Y1 and = +",
+    "anchors": [
+      {
+        "start": 0,
+        "end": 1,
+        "pageIndex": 9,
+        "charIndex": 3633,
+        "rect": [
+          343.214,
+          554.99,
+          345.868,
+          559.866
+        ]
+      },
+      {
+        "start": 2,
+        "end": 3,
+        "pageIndex": 9,
+        "charIndex": 3634,
+        "rect": [
+          359.341,
+          554.99,
+          361.388,
+          559.866
+        ]
+      },
+      {
+        "start": 4,
+        "end": 5,
+        "pageIndex": 9,
+        "charIndex": 3635,
+        "rect": [
+          374.318,
+          556.429,
+          377.373,
+          561.306
+        ]
+      },
+      {
+        "start": 5,
+        "end": 6,
+        "pageIndex": 9,
+        "charIndex": 3636,
+        "rect": [
+          376.91,
+          554.99,
+          378.957,
+          559.866
+        ]
+      },
+      {
+        "start": 7,
+        "end": 8,
+        "pageIndex": 9,
+        "charIndex": 3637,
+        "rect": [
+          381.181,
+          550.34,
+          385.455,
+          558.557
+        ]
+      },
+      {
+        "start": 8,
+        "end": 9,
+        "pageIndex": 9,
+        "charIndex": 3638,
+        "rect": [
+          385.455,
+          550.34,
+          390.38,
+          558.557
+        ]
+      },
+      {
+        "start": 9,
+        "end": 10,
+        "pageIndex": 9,
+        "charIndex": 3639,
+        "rect": [
+          390.38,
+          550.34,
+          395.454,
+          558.557
+        ]
+      },
+      {
+        "start": 11,
+        "end": 12,
+        "pageIndex": 9,
+        "charIndex": 3640,
+        "rect": [
+          405.892,
+          550.011,
+          410.719,
+          558.329
+        ]
+      },
+      {
+        "start": 13,
+        "end": 14,
+        "pageIndex": 9,
+        "charIndex": 3641,
+        "rect": [
+          421.443,
+          550.011,
+          426.254,
+          558.329
+        ]
+      }
+    ],
+    "rotation": 0,
+    "fontSize": 8.25,
+    "bold": false,
+    "italic": false,
+    "segments": [
+      {
+        "id": "p9-c3633-s1",
+        "sourceStart": 0,
+        "sourceEnd": 14,
+        "source": "2 1 Y1 and = +"
+      }
+    ]
+  },
+  {
+    "id": "p9-c3642",
+    "kind": "paragraph",
+    "pageIndex": 9,
+    "pageLabel": "10",
+    "pageHeight": 790.866,
+    "source": "y h",
+    "anchors": [
+      {
+        "start": 0,
+        "end": 1,
+        "pageIndex": 9,
+        "charIndex": 3642,
+        "rect": [
+          398.116,
+          556.193,
+          400.944,
+          561.93
+        ]
+      },
+      {
+        "start": 2,
+        "end": 3,
+        "pageIndex": 9,
+        "charIndex": 3643,
+        "rect": [
+          398.692,
+          547.553,
+          402.119,
+          553.29
+        ]
+      }
+    ],
+    "rotation": 0,
+    "fontSize": 5.760000220000052,
+    "bold": false,
+    "italic": true,
+    "segments": [
+      {
+        "id": "p9-c3642-s1",
+        "sourceStart": 0,
+        "sourceEnd": 3,
+        "source": "y h"
+      }
+    ]
+  },
+  {
+    "id": "p9-c3644",
+    "kind": "paragraph",
+    "pageIndex": 9,
+    "pageLabel": "10",
+    "pageHeight": 790.866,
+    "source": "y h",
+    "anchors": [
+      {
+        "start": 0,
+        "end": 1,
+        "pageIndex": 9,
+        "charIndex": 3644,
+        "rect": [
+          413.668,
+          556.193,
+          416.496,
+          561.93
+        ]
+      },
+      {
+        "start": 2,
+        "end": 3,
+        "pageIndex": 9,
+        "charIndex": 3645,
+        "rect": [
+          414.244,
+          547.553,
+          417.671,
+          553.29
+        ]
+      }
+    ],
+    "rotation": 0,
+    "fontSize": 5.760000220000052,
+    "bold": false,
+    "italic": true,
+    "segments": [
+      {
+        "id": "p9-c3644-s1",
+        "sourceStart": 0,
+        "sourceEnd": 3,
+        "source": "y h"
+      }
+    ]
+  },
+  {
+    "id": "p9-c3646",
+    "kind": "paragraph",
+    "pageIndex": 9,
+    "pageLabel": "10",
+    "pageHeight": 790.866,
+    "source": "ϵ κh",
+    "anchors": [
+      {
+        "start": 0,
+        "end": 1,
+        "pageIndex": 9,
+        "charIndex": 3646,
+        "rect": [
+          428.644,
+          557.633,
+          431.368,
+          563.37
+        ]
+      },
+      {
+        "start": 2,
+        "end": 3,
+        "pageIndex": 9,
+        "charIndex": 3647,
+        "rect": [
+          430.084,
+          547.553,
+          433.108,
+          553.29
+        ]
+      },
+      {
+        "start": 3,
+        "end": 4,
+        "pageIndex": 9,
+        "charIndex": 3648,
+        "rect": [
+          433.252,
+          547.553,
+          436.679,
+          553.29
+        ]
+      }
+    ],
+    "rotation": 0,
+    "fontSize": 5.760000220000052,
+    "bold": false,
+    "italic": true,
+    "segments": [
+      {
+        "id": "p9-c3646-s1",
+        "sourceStart": 0,
+        "sourceEnd": 4,
+        "source": "ϵ κh"
+      }
+    ]
+  },
+  {
+    "id": "p9-c3649",
+    "kind": "paragraph",
+    "pageIndex": 9,
+    "pageLabel": "10",
+    "pageHeight": 790.866,
+    "source": "4 1 Y2 and κ and y1 are given by",
+    "anchors": [
+      {
+        "start": 0,
+        "end": 1,
+        "pageIndex": 9,
+        "charIndex": 3649,
+        "rect": [
+          400.996,
+          554.99,
+          403.884,
+          559.866
+        ]
+      },
+      {
+        "start": 2,
+        "end": 3,
+        "pageIndex": 9,
+        "charIndex": 3650,
+        "rect": [
+          417.123,
+          554.99,
+          419.17,
+          559.866
+        ]
+      },
+      {
+        "start": 4,
+        "end": 5,
+        "pageIndex": 9,
+        "charIndex": 3651,
+        "rect": [
+          432.1,
+          556.429,
+          435.155,
+          561.306
+        ]
+      },
+      {
+        "start": 5,
+        "end": 6,
+        "pageIndex": 9,
+        "charIndex": 3652,
+        "rect": [
+          434.692,
+          554.99,
+          437.345,
+          559.866
+        ]
+      },
+      {
+        "start": 7,
+        "end": 8,
+        "pageIndex": 9,
+        "charIndex": 3653,
+        "rect": [
+          439.539,
+          550.34,
+          443.813,
+          558.557
+        ]
+      },
+      {
+        "start": 8,
+        "end": 9,
+        "pageIndex": 9,
+        "charIndex": 3654,
+        "rect": [
+          443.813,
+          550.34,
+          448.738,
+          558.557
+        ]
+      },
+      {
+        "start": 9,
+        "end": 10,
+        "pageIndex": 9,
+        "charIndex": 3655,
+        "rect": [
+          448.738,
+          550.34,
+          453.812,
+          558.557
+        ]
+      },
+      {
+        "start": 11,
+        "end": 12,
+        "pageIndex": 9,
+        "charIndex": 3656,
+        "rect": [
+          455.115,
+          550.34,
+          459.446,
+          558.557
+        ]
+      },
+      {
+        "start": 13,
+        "end": 14,
+        "pageIndex": 9,
+        "charIndex": 3657,
+        "rect": [
+          460.75,
+          550.34,
+          465.023,
+          558.557
+        ]
+      },
+      {
+        "start": 14,
+        "end": 15,
+        "pageIndex": 9,
+        "charIndex": 3658,
+        "rect": [
+          465.023,
+          550.34,
+          469.949,
+          558.557
+        ]
+      },
+      {
+        "start": 15,
+        "end": 16,
+        "pageIndex": 9,
+        "charIndex": 3659,
+        "rect": [
+          469.949,
+          550.34,
+          475.022,
+          558.557
+        ]
+      },
+      {
+        "start": 17,
+        "end": 18,
+        "pageIndex": 9,
+        "charIndex": 3660,
+        "rect": [
+          476.326,
+          550.34,
+          480.377,
+          558.557
+        ]
+      },
+      {
+        "start": 18,
+        "end": 19,
+        "pageIndex": 9,
+        "charIndex": 3661,
+        "rect": [
+          480.389,
+          549.594,
+          482.458,
+          554.524
+        ]
+      },
+      {
+        "start": 20,
+        "end": 21,
+        "pageIndex": 9,
+        "charIndex": 3662,
+        "rect": [
+          483.762,
+          550.34,
+          488.035,
+          558.557
+        ]
+      },
+      {
+        "start": 21,
+        "end": 22,
+        "pageIndex": 9,
+        "charIndex": 3663,
+        "rect": [
+          488.035,
+          550.34,
+          491.459,
+          558.557
+        ]
+      },
+      {
+        "start": 22,
+        "end": 23,
+        "pageIndex": 9,
+        "charIndex": 3664,
+        "rect": [
+          491.335,
+          550.34,
+          495.724,
+          558.557
+        ]
+      },
+      {
+        "start": 24,
+        "end": 25,
+        "pageIndex": 9,
+        "charIndex": 3665,
+        "rect": [
+          497.028,
+          550.34,
+          501.829,
+          558.557
+        ]
+      },
+      {
+        "start": 25,
+        "end": 26,
+        "pageIndex": 9,
+        "charIndex": 3666,
+        "rect": [
+          501.829,
+          550.34,
+          504.189,
+          558.557
+        ]
+      },
+      {
+        "start": 26,
+        "end": 27,
+        "pageIndex": 9,
+        "charIndex": 3667,
+        "rect": [
+          504.189,
+          550.34,
+          508.569,
+          558.557
+        ]
+      },
+      {
+        "start": 27,
+        "end": 28,
+        "pageIndex": 9,
+        "charIndex": 3668,
+        "rect": [
+          508.404,
+          550.34,
+          512.793,
+          558.557
+        ]
+      },
+      {
+        "start": 28,
+        "end": 29,
+        "pageIndex": 9,
+        "charIndex": 3669,
+        "rect": [
+          512.793,
+          550.34,
+          517.719,
+          558.557
+        ]
+      },
+      {
+        "start": 30,
+        "end": 31,
+        "pageIndex": 9,
+        "charIndex": 3670,
+        "rect": [
+          519.022,
+          550.34,
+          524.03,
+          558.557
+        ]
+      },
+      {
+        "start": 31,
+        "end": 32,
+        "pageIndex": 9,
+        "charIndex": 3671,
+        "rect": [
+          523.947,
+          550.34,
+          528.287,
+          558.557
+        ]
+      }
+    ],
+    "rotation": 0,
+    "fontSize": 8.25,
+    "bold": false,
+    "italic": false,
+    "segments": [
+      {
+        "id": "p9-c3649-s1",
+        "sourceStart": 0,
+        "sourceEnd": 32,
+        "source": "4 1 Y2 and κ and y1 are given by"
+      }
+    ]
+  }
+]

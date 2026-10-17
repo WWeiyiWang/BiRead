@@ -1,3 +1,4 @@
+import { auditLayout, originalPage } from "./layoutQuality";
 import { blockRect, sameRegion } from "./pdfImages";
 import { preserveOriginalRegions } from "./originalRegions";
 import { extractTextTables } from "./textTables";
@@ -138,8 +139,13 @@ export async function extractDocument(
     });
     for (const note of noteBlocks) note.kind = "footnote";
     unique.push(...noteBlocks);
+    const parsed = preserveOriginalRegions(unique, graphics, box);
+    const issues = auditLayout(allGlyphs, parsed, box);
     document.blocks.push(
-      ...preserveOriginalRegions(unique, graphics, box).map((block) => ({
+      ...(issues.length
+        ? [originalPage(pageIndex, label, box, issues)]
+        : parsed
+      ).map((block) => ({
         ...block,
         pageBox: box,
       })),

@@ -63,9 +63,66 @@ function regionAbove(
     .map(blockRect)
     .filter((r) => r[1] > c[3] && xOverlap(c, r) > 0);
   const boundary = Math.min(pageBox[3], ...otherCaptions.map((r) => r[1] - 2));
-  const candidates = graphics.filter(
+  // A centred caption can be much narrower than its full multi-panel figure.
+  // Only parallel captions constrain the horizontal lane; caption width does not.
+  let laneLeft = pageBox[0],
+    laneRight = pageBox[2];
+  const cx = (c[0] + c[2]) / 2;
+  const mid = (pageBox[0] + pageBox[2]) / 2;
+  const wideGraphic = graphics.some(
     (r) =>
-      xOverlap(c, r) > 0 &&
+      r[2] - r[0] > width * 0.6 &&
+      r[3] - r[1] > 25 &&
+      r[1] >= c[3] - 3 &&
+      r[1] - c[3] < 100 &&
+      r[3] <= boundary,
+  );
+  if (!wideGraphic) {
+    if (c[2] <= mid + 3) laneRight = mid;
+    else if (c[0] >= mid - 3) laneLeft = mid;
+  }
+  for (const b of blocks) {
+    if (b === caption || b.kind !== "caption" || !b.anchors.length) continue;
+    const q = blockRect(b),
+      qx = (q[0] + q[2]) / 2;
+    if (Math.abs(q[3] - c[3]) > 24 || xOverlap(c, q) > 0) continue;
+    if (qx < cx) laneLeft = Math.max(laneLeft, (qx + cx) / 2);
+    else laneRight = Math.min(laneRight, (qx + cx) / 2);
+  }
+  // Selectable table cells and diagram labels can bridge disconnected drawing
+  // assets. They must be small-type fragments above this caption, not prose.
+  const connectors = blocks
+    .filter(
+      (b) =>
+        b !== caption &&
+        b.kind === "paragraph" &&
+        b.anchors.length &&
+        b.source.length < 140 &&
+        !/[.!?]\s*$/.test(b.source) &&
+        !!caption.fontSize &&
+        !!b.fontSize &&
+        b.fontSize <= caption.fontSize * 1.15,
+    )
+    .map(blockRect);
+  const eligible = (r: Rect) =>
+    r[0] >= laneLeft - 3 &&
+    r[2] <= laneRight + 3 &&
+    r[1] >= c[3] - 3 &&
+    r[3] > c[3] + 4 &&
+    r[3] <= boundary &&
+    r[2] - r[0] < width * 0.97 &&
+    r[3] - r[1] < height * 0.8;
+  const graphicTop = Math.max(
+    c[3],
+    ...graphics.filter((r) => eligible(r) && r[3] - r[1] > 4).map((r) => r[3]),
+  );
+  const candidates = [
+    ...graphics,
+    ...connectors.filter((r) => r[3] <= graphicTop + 12),
+  ].filter(
+    (r) =>
+      r[0] >= laneLeft - 3 &&
+      r[2] <= laneRight + 3 &&
       r[1] >= c[3] - 3 &&
       r[3] > c[3] + 4 &&
       r[3] <= boundary &&
@@ -73,7 +130,12 @@ function regionAbove(
       r[3] - r[1] < height * 0.8,
   );
   candidates.sort((a, b) => a[1] - b[1]);
-  const seed = candidates.find((r) => r[2] - r[0] > 12 || r[3] - r[1] > 12);
+  const seed = candidates.find(
+    (r) =>
+      graphics.includes(r) &&
+      xOverlap(c, r) > 0 &&
+      (r[2] - r[0] > 12 || r[3] - r[1] > 12),
+  );
   if (!seed || seed[1] - c[3] > 100) return;
   let region: Rect = [...seed];
   let changed = true;
@@ -98,7 +160,7 @@ function regionAbove(
   )
     return;
   // Include nearby diagram labels, but stop before ordinary prose above it.
-  let top = Math.min(pageBox[3], region[3] + 18);
+  let top = Math.min(pageBox[3], region[3] + 4);
   for (const b of blocks) {
     if (
       b.pageIndex !== caption.pageIndex ||

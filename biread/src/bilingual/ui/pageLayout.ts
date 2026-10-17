@@ -38,7 +38,7 @@ export class PageLayout {
       #zpt-bilingual .bi-paper .bi-text { padding:0!important; margin:0!important; text-indent:0; line-height:1.25!important; font-size:inherit!important; font-weight:inherit!important; font-style:inherit!important; text-align:inherit!important; max-width:100%; box-sizing:border-box; }
       #zpt-bilingual .bi-paper .bi-row { min-width:0; box-sizing:border-box; overflow:auto; }
       #zpt-bilingual .bi-paper .bi-columns { display:block }
-      #zpt-bilingual .bi-paper img { position:absolute; display:block; width:100%; object-fit:contain }
+      #zpt-bilingual .bi-paper > img { position:absolute; display:block; width:100%; object-fit:contain }
       #zpt-bilingual .bi-paper .bi-structured-table { position:absolute; margin:0; max-width:none }
       #zpt-bilingual .bi-paper .bi-structured-table .bi-row { font-size:inherit }
       #zpt-bilingual .bi-paper .bi-structured-table td, #zpt-bilingual .bi-paper .bi-structured-table th { padding:.15em .3em }
@@ -160,7 +160,16 @@ export class PageLayout {
             ":scope > .bi-paper-label, :scope > .bi-page-furniture, :scope > .bi-page-rule",
           )
           .forEach((e) => e.remove());
-        for (const glyph of furniture?.glyphs || []) {
+        const originalPage = pageBlocks.some((b) => b.kind === "original-page");
+        if (originalPage) {
+          const status = this.ui.doc.createElement("div");
+          status.className = "bi-paper-label";
+          status.textContent = "原版保留 · 本页未翻译";
+          status.style.cssText =
+            "position:absolute;top:0;bottom:auto;z-index:5;background:#fff4d9;padding:6px;box-sizing:border-box";
+          page.append(status);
+        }
+        for (const glyph of originalPage ? [] : furniture?.glyphs || []) {
           const span = this.ui.doc.createElement("span");
           span.className = "bi-page-furniture";
           span.textContent = glyph.text;
@@ -178,7 +187,7 @@ export class PageLayout {
               ((glyph.rect[2] - glyph.rect[0]) * scale) / width +
               ")";
         }
-        for (const r of furniture?.rules || []) {
+        for (const r of originalPage ? [] : furniture?.rules || []) {
           const rule = this.ui.doc.createElement("div");
           rule.className = "bi-page-rule";
           rule.style.cssText =
@@ -228,7 +237,9 @@ export class PageLayout {
           if (!block?.anchors.length) continue;
           const rect = blockRect(block);
           const covered =
-            (block.kind !== "caption" || !!block.originalRegion) &&
+            (block.kind !== "caption" ||
+              (!!block.originalRegion &&
+                !block.originalRegion.includesCaption)) &&
             figureRects.some((r) =>
               block.anchors.every((a) => {
                 const x = (a.rect[0] + a.rect[2]) / 2,

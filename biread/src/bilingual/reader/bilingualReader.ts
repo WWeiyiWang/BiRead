@@ -234,8 +234,10 @@ class Session {
         (block, done, total) => {
           if (this.disposed) return;
           this.onBlockUpdate(block);
-          const missing = this.document!.emptyPages.length;
-          this.ui.status.textContent = `${done === total ? "READY" : "TRANSLATING"} ${done} / ${total}${missing ? ` · ${missing} page(s) without selectable text` : ""}${notice}`;
+          const missing = this.document!.blocks.filter(
+            (b) => b.kind === "original-page",
+          ).length;
+          this.ui.status.textContent = `${done === total ? "READY" : "TRANSLATING"} ${done} / ${total}${missing ? ` · ${missing} 页保留原版，未翻译` : ""}${notice}`;
         },
         () => this.disposed || this.paused,
         (block, seconds) => {

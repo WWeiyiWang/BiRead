@@ -11,7 +11,9 @@ function sectionNumber(text: string) {
     /[a-z][.!?]\s+[A-Z][a-z]/.test(text)
   )
     return null;
-  return text.match(/^((?:\d+|[A-Z])(?:\.\d+)*)(?:\.)?\s+[A-Za-z]/);
+  return text.match(
+    /^((?:\d+(?:\.\d+)*|[IVXLCDM]+|[A-Z]))(?:\.\s*|\s+)([A-Za-z].*)$/,
+  );
 }
 
 function median(values: number[]) {
@@ -78,7 +80,7 @@ export function segmentPage(
       kind = "list";
     else if (
       source.length < 180 &&
-      /[=∑∫∏]/.test(source) &&
+      /[=∑∫∏∝≈≠≤≥]/.test(source) &&
       ((source.match(/[a-zA-Z]{3,}/g) || []).length < 3 ||
         (/\(\d{1,3}\)\s*$/.test(source) &&
           (source.match(/[a-zA-Z]{3,}/g) || []).length < 10))
@@ -135,7 +137,7 @@ export function segmentPage(
     const list = /^(?:[•▪◦●‣–—-]\s+|\(?\d+[.)]\s+|[a-z][.)]\s+)/.test(text);
     const numberedEquation =
       text.length < 180 &&
-      /[=∑∫∏]/.test(text) &&
+      /[=∑∫∏∝≈≠≤≥]/.test(text) &&
       /\(\d{1,3}\)\s*$/.test(text) &&
       (text.match(/[a-zA-Z]{3,}/g) || []).length < 10;
     if (numberedEquation) flush();
@@ -221,8 +223,19 @@ export function inferHierarchy(blocks: Block[]) {
       block.kind = "title";
       continue;
     }
-    const numberedList = block.kind === "list" && !block.bold && !large;
-    const bodyScale = !body || !block.fontSize || block.fontSize >= body * 0.9;
+    const namedSection =
+      numbered &&
+      /^(?:introduction|background|related work|methods?|results?|discussion|conclusions?|references)\b/i.test(
+        numbered[2],
+      );
+    const numberedList =
+      block.kind === "list" && !block.bold && !large && !namedSection;
+    // Small capitals in IEEE-style headings are physically smaller than prose.
+    const smallCaps = !!numbered && /^[A-Z\s\d&’'():-]+$/.test(numbered[2]);
+    const bodyScale =
+      !body ||
+      !block.fontSize ||
+      block.fontSize >= body * (smallCaps ? 0.72 : 0.9);
     if (
       !numberedList &&
       bodyScale &&
@@ -231,13 +244,60 @@ export function inferHierarchy(blocks: Block[]) {
     ) {
       block.kind = "heading";
       block.headingLevel = numbered
-        ? Math.min(3, numbered[1].split(".").length)
+        ? /^(?:[IVX]|[IVXLCDM]{2,})$/.test(numbered[1])
+          ? 1
+          : /^[A-Z]$/.test(numbered[1])
+            ? 2
+            : Math.min(6, numbered[1].split(".").length)
         : large || known
           ? 1
           : block.italic
             ? 3
             : 2;
     } else if (block.kind === "heading") block.headingLevel = 1;
+  }
+  // Wrapped numbered headings may arrive as independent native paragraphs.
+  // Join only an adjacent, indented continuation with the same font geometry.
+  for (let i = 1; i < blocks.length; i++) {
+    const a = blocks[i - 1],
+      b = blocks[i];
+    if (
+      a.kind !== "heading" ||
+      b.kind !== "heading" ||
+      a.pageIndex !== b.pageIndex ||
+      !sectionNumber(a.source) ||
+      sectionNumber(b.source) ||
+      /^(?:abstract|introduction|methods?|results?|discussion|conclusions?|references|acknowledg(?:e)?ments?)$/i.test(
+        b.source,
+      ) ||
+      !a.anchors.length ||
+      !b.anchors.length ||
+      Math.abs((a.fontSize || 0) - (b.fontSize || 0)) > 0.5
+    )
+      continue;
+    const bottom = Math.min(...a.anchors.map((x) => x.rect[1]));
+    const top = Math.max(...b.anchors.map((x) => x.rect[3]));
+    const dx =
+      Math.min(...b.anchors.map((x) => x.rect[0])) -
+      Math.min(...a.anchors.map((x) => x.rect[0]));
+    if (
+      bottom - top < -2 ||
+      bottom - top > (a.fontSize || 10) * 0.8 ||
+      dx < -2 ||
+      dx > (a.fontSize || 10) * 3
+    )
+      continue;
+    const offset = a.source.length + 1;
+    a.source += " " + b.source;
+    a.anchors.push(
+      ...b.anchors.map((x) => ({
+        ...x,
+        start: x.start + offset,
+        end: x.end + offset,
+      })),
+    );
+    a.segments = segmentText(a.source, a.id);
+    blocks.splice(i--, 1);
   }
   // Adjacent title lines often arrive as separate native paragraphs.
   for (let i = 1; i < blocks.length; i++) {

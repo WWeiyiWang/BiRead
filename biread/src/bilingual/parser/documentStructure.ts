@@ -1,4 +1,5 @@
 import type { Block, Glyph, Rect } from "../types";
+import { segmentText } from "../alignment/segmentAlignment";
 export interface TextPage {
   glyphs: Glyph[];
   box: Rect;
@@ -7,6 +8,51 @@ export interface TextPage {
 export function identifyFrontMatter(blocks: Block[]) {
   const first = blocks.filter((b) => b.pageIndex === 0);
   const title = first.findIndex((b) => b.kind === "title");
+  const abstract = first.find(
+    (b) =>
+      b.kind === "abstract" ||
+      /^(?:abstract\b|(?:I\.|1\.?\s*)?\s*introduction\s*$)/i.test(
+        b.source.trim(),
+      ),
+  );
+  const abstractTop = abstract?.anchors.length
+    ? Math.max(...abstract.anchors.map((a) => a.rect[3]))
+    : undefined;
+  // Author grids occupy the title-to-abstract band. Classify the whole band
+  // using affiliation/email evidence, rather than requiring names and units
+  // to have been extracted into the same text block.
+  const front = first.filter(
+    (b) =>
+      b.kind !== "title" &&
+      b.kind !== "caption" &&
+      b.anchors.length &&
+      abstractTop !== undefined &&
+      Math.min(...b.anchors.map((a) => a.rect[1])) > abstractTop &&
+      b.source.length < 650,
+  );
+  const nameLike = (text: string) =>
+    text.length < 450 &&
+    text.split(/\s+/).length < 40 &&
+    (text.match(/\b\p{Lu}[\p{L}’'-]+/gu) || []).length >= 2 &&
+    !/\b(?:we|this|study|demonstrates?|investigat\w*|propose\w*|using|framework|copyright|conference)\b/i.test(
+      text,
+    ) &&
+    /^(?:\p{Lu}[\p{L}’'-]*\.?[\d*†‡]*|and|van|von|de|[\s,&;\d*†‡])+$/u.test(
+      text,
+    );
+  const authorBand = front.some(
+    (b) =>
+      /@|\b(?:university|institute|department|engineering|laboratory|lab)\b/i.test(
+        b.source,
+      ) || nameLike(b.source),
+  );
+  if (authorBand)
+    for (const b of front) {
+      if (/^(?:research article|article|https?:|www\.)/i.test(b.source))
+        continue;
+      b.kind = "author-info";
+      delete b.headingLevel;
+    }
   for (const [i, b] of first.entries()) {
     const text = b.source.trim();
     const affiliation =
@@ -18,10 +64,11 @@ export function identifyFrontMatter(blocks: Block[]) {
       i === title + 1 &&
       title >= 0 &&
       text.length < 450 &&
-      text.split(",").length >= 3 &&
+      (text.split(",").length >= 3 || nameLike(text)) &&
       !/\b(?:we|this study|demonstrates?|investigat\w*)\b/i.test(text);
     if (
       authorLine ||
+      (affiliation && /@/.test(text) && text.length < 650) ||
       (affiliation && nameStart && text.length < 650) ||
       /^The ORCID identification/i.test(text)
     ) {
@@ -41,7 +88,8 @@ export function identifyFrontMatter(blocks: Block[]) {
 /** Some journals omit a References heading. Require a numbered bibliography
  * sequence and author initials in the document tail, not a lone prose citation. */
 export function identifyReferences(blocks: Block[]) {
-  const lastPage = Math.max(0, ...blocks.map((b) => b.pageIndex));
+  const entry =
+    /^(?:\[(\d+)\]|(\d+)\.)\s+\p{Lu}[\p{L}’'-]*(?:,\s*[A-Z]\.|\s+[A-Z]\.|\.)/u;
   let active = false;
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i];
@@ -53,24 +101,25 @@ export function identifyReferences(blocks: Block[]) {
       active = true;
       continue;
     }
-    if (/^(?:appendix|supplementary material)\b/i.test(b.source.trim()))
-      active = false;
     if (
-      !active &&
-      b.pageIndex >= Math.floor(lastPage * 0.65) &&
-      /^\[1\]\s*[A-Z](?:\.|[a-z-])/i.test(b.source.trim())
-    ) {
-      const sample = blocks
-        .slice(i, i + 12)
-        .map((x) => x.source)
-        .join(" ");
-      const entries = [
-        ...sample.matchAll(/\[(\d+)\]\s*([A-Z][\w-]*\.|[A-Z]\.)/g),
-      ];
+      /^(?:appendix|supplementary material|methods|acknowledg(?:e)?ments|author contributions|data availability|publisher[’']s note|Springer Nature or its licensor)\b/i.test(
+        b.source.trim(),
+      )
+    )
+      active = false;
+    if (!active && entry.test(b.source.trim())) {
+      const sample = blocks.slice(i, i + 14);
+      const entries = sample.flatMap((x) => {
+        const bracketed = [...x.source.matchAll(/\[(\d+)\]\s*[A-Z]/g)];
+        return bracketed.length
+          ? bracketed
+          : [x.source.trim().match(entry)].filter(Boolean);
+      });
+      const numbers = entries.map((m) => Number(m![1] || m![2]));
       active =
-        entries.length >= 3 &&
-        entries.slice(0, 3).every((m, n) => Number(m[1]) === n + 1) &&
-        /(?:19|20)\d{2}/.test(sample);
+        numbers.length >= 3 &&
+        numbers.slice(0, 3).every((n, j) => n === numbers[0] + j) &&
+        sample.filter((x) => /(?:19|20)\d{2}/.test(x.source)).length >= 2;
     }
     if (
       active &&
@@ -80,6 +129,29 @@ export function identifyReferences(blocks: Block[]) {
       b.kind = "reference";
       delete b.headingLevel;
     }
+  }
+  // Join continuation runs, retaining character anchors for PDF navigation.
+  for (let i = 1; i < blocks.length; i++) {
+    const previous = blocks[i - 1],
+      current = blocks[i];
+    if (
+      previous.kind !== "reference" ||
+      current.kind !== "reference" ||
+      previous.pageIndex !== current.pageIndex ||
+      /^(?:\[\d+\]|\d+\.)\s/.test(current.source.trim())
+    )
+      continue;
+    const offset = previous.source.length + 1;
+    previous.source += " " + current.source;
+    previous.anchors.push(
+      ...current.anchors.map((a) => ({
+        ...a,
+        start: a.start + offset,
+        end: a.end + offset,
+      })),
+    );
+    previous.segments = segmentText(previous.source, previous.id);
+    blocks.splice(i--, 1);
   }
 }
 export function textLines(glyphs: Glyph[]): Glyph[][] {
@@ -124,7 +196,14 @@ export function removePageFurniture(pages: TextPage[]): TextPage[] {
     const [x0, y0, x1, y1] = page.box,
       w = x1 - x0,
       h = y1 - y0;
+    const bodySizes = page.glyphs
+      .filter((g) => g.rect[1] > y0 + h * 0.12 && g.rect[3] < y1 - h * 0.12)
+      .map((g) => g.fontSize || g.rect[3] - g.rect[1])
+      .filter((s) => s > 0)
+      .sort((a, b) => a - b);
+    const bodySize = bodySizes[Math.floor(bodySizes.length / 2)] || 0;
     let noteContinuation = false;
+    let publicationContinuation = false;
     for (const line of textLines(page.glyphs)) {
       const text = lineText(line),
         r = bounds(line),
@@ -134,22 +213,31 @@ export function removePageFurniture(pages: TextPage[]): TextPage[] {
         /^(?:\d{1,2}|[*†‡])\s*[A-Za-z\u4e00-\u9fff]/.test(text);
       const note: boolean = noteStart || noteContinuation;
       noteContinuation = note && !line[line.length - 1].paragraphBreakAfter;
-      const top = center > y1 - h * 0.08,
+      const top = center > y1 - h * 0.1,
         bottom = center < y0 + h * 0.065;
-      // Standalone publisher identifiers at the margin are not prose footnotes.
-      // An inline DOI in a paragraph or reference is deliberately retained.
-      const publication =
-        (center > y1 - h * 0.1 || center < y0 + h * 0.12) &&
-        /^(?:(?:e-?|p-?)?ISSN\s*[:：]?\s*[\dXx-]+|(?:https?:\/\/(?:dx\.)?doi\.org\/|doi\s*:\s*)10\.\S+|PII\s*:\s*\S+|\d{4}-[\dXx]{4}\/.*see front matter.*|(?:©|copyright)\s*\d{4}.*rights reserved.*)\s*$/i.test(
+      const publicationHeader =
+        top &&
+        /^\d{4}\s+.*\b(?:conference|symposium|congress|proceedings)\b/i.test(
           text,
         );
+      // Standalone publisher identifiers at the margin are not prose footnotes.
+      // An inline DOI in a paragraph or reference is deliberately retained.
+      const publication: boolean =
+        publicationHeader ||
+        (top && publicationContinuation) ||
+        ((center > y1 - h * 0.1 || center < y0 + h * 0.12) &&
+          /^(?:(?:e-?|p-?)?ISSN\s*[:：]?\s*[\dXx-]+|(?:https?:\/\/(?:dx\.)?doi\.org\/|doi\s*:\s*)10\.\S+|PII\s*:\s*\S+|97[89][-\d]+\/.*|\d{4}-[\dXx]{4}\/.*see front matter.*|(?:©|copyright)\s*\d{4}.*(?:rights reserved|IEEE|ACM).*)\s*$/i.test(
+            text,
+          ));
+      publicationContinuation =
+        top && publication && !line[line.length - 1].paragraphBreakAfter;
       const number =
         (center > y1 - h * 0.045 || center < y0 + h * 0.055) &&
         /^(?:[-–—]\s*)?(?:\d{1,5}|[ivxlcdm]{1,8})(?:\s*[-–—])?$/i.test(text);
       const sideMark =
         (r[0] < x0 + w * 0.07 || r[2] > x1 - w * 0.07) &&
         r[3] - r[1] > r[2] - r[0] &&
-        /arxiv:|downloaded from|terms and conditions|wiley online library|creative commons license/i.test(
+        /arxiv:|downloaded from|terms and conditions|wiley online library|creative commons license|©\s*\d{4}|doi:\s*10\.|97[89][-\d]{10,}/i.test(
           text,
         );
       if (!top && !bottom && !sideMark && !publication) continue;
@@ -161,11 +249,20 @@ export function removePageFurniture(pages: TextPage[]): TextPage[] {
         /^(?:\d{1,2}|[*†‡])\s*[A-Za-z\u4e00-\u9fff]/.test(text)
       )
         continue;
-      if ((text.length > 160 && !sideMark) || !text) continue;
+      if ((text.length > 160 && !sideMark && !publication) || !text) continue;
       const sizes = line
         .map((g) => g.fontSize || g.rect[3] - g.rect[1])
         .sort((a, b) => a - b);
       const style = Math.round(sizes[Math.floor(sizes.length / 2)] * 2);
+      if (
+        top &&
+        center <= y1 - h * 0.08 &&
+        !publication &&
+        !sideMark &&
+        bodySize &&
+        sizes[Math.floor(sizes.length / 2)] >= bodySize * 0.94
+      )
+        continue;
       const key =
         (top ? "top:" : "bottom:") +
         style +

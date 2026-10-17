@@ -7,6 +7,55 @@ import { pageContinuations } from "../parser/pageContinuations";
 import { readerTheme } from "./readerTheme";
 
 export class BilingualView {
+  private mathImages = new Map<string, PDFImage>();
+  private renderInlineMath(block: Block) {
+    const row = this.rows.get(block.id);
+    if (!row) return;
+    for (const math of block.inlineMath || []) {
+      const image = this.mathImages.get(math.id);
+
+      for (const cell of [row.source, row.translation]) {
+        for (const existing of Array.from(
+          cell.querySelectorAll("[data-inline-math]"),
+        ) as HTMLElement[]) {
+          if (existing.dataset.inlineMath === math.id)
+            existing.replaceWith(this.doc.createTextNode(math.token));
+        }
+        const walker = this.doc.createTreeWalker(cell, 4);
+        const nodes: Text[] = [];
+        while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+        for (const node of nodes) {
+          if (node.parentElement?.closest("[data-inline-math]")) continue;
+          const at = node.data.indexOf(math.token);
+          if (at < 0) continue;
+          const span = this.doc.createElement("span");
+          span.dataset.inlineMath = math.id;
+          const text = this.doc.createElement("span");
+          text.textContent = math.token;
+          text.style.fontSize = "0";
+          const img = this.doc.createElement("img");
+          if (image) img.src = image.src;
+          img.alt = "公式加载中";
+          const h = Math.max(1, math.rect[3] - math.rect[1]);
+          img.style.cssText = `display:inline-block;vertical-align:middle;height:${Math.max(1, h / (block.fontSize || 8))}em;width:auto;max-width:100%;margin:0 .15em`;
+          span.append(text);
+          if (image) {
+            img.alt = "原文公式";
+            span.append(img);
+          } else {
+            const pending = this.doc.createElement("span");
+            pending.textContent = "〔公式加载中〕";
+            span.append(pending);
+          }
+          node.replaceWith(
+            this.doc.createTextNode(node.data.slice(0, at)),
+            span,
+            this.doc.createTextNode(node.data.slice(at + math.token.length)),
+          );
+        }
+      }
+    }
+  }
   private continuationUndo: (() => void)[] = [];
   private renderedBlocks: Block[] = [];
   setContinuousReading(active: boolean) {
@@ -408,6 +457,14 @@ export class BilingualView {
       row.dataset.blockId = block.id;
       row.dataset.kind = block.kind;
       row.dataset.pageIndex = String(block.pageIndex);
+      if (["equation", "original-page"].includes(block.kind))
+        row.dataset.originalEquation = "true";
+      if (block.kind === "equation") {
+        const loading = this.doc.createElement("p");
+        loading.className = "bi-equation-loading";
+        loading.textContent = "原文公式 · 等待加载";
+        row.append(loading);
+      }
       if (block.sectionID) row.dataset.sectionId = block.sectionID;
       if (block.headingLevel) row.dataset.level = String(block.headingLevel);
       const meta = this.doc.createElement("div");
@@ -416,6 +473,7 @@ export class BilingualView {
       const kinds: Record<string, string> = {
         "author-info": "作者信息 · Authors & affiliations",
         "publication-info": "出版信息",
+        "original-page": "原版保留 · 本页未翻译",
         title: "标题",
         heading: "章节",
         paragraph: "正文",
@@ -435,6 +493,14 @@ export class BilingualView {
         block.kind === "caption" ? "原图 / 原表 ↗" : "原文定位 ↗";
       jump.onclick = () => this.openBlock(block);
       meta.append(label, jump);
+      if (block.kind === "original-page") {
+        const notice = this.doc.createElement("p");
+        notice.className = "bi-layout-notice";
+        notice.textContent = block.layoutIssues?.includes("no-text")
+          ? "本页没有可提取的文字，已保留原页。暂不支持扫描页自动翻译。"
+          : "本页排版未通过自动检查，已保留完整原页，避免公式拆散或内容遗漏。本页未翻译，可点击原文定位查看。";
+        row.append(notice);
+      }
       const columns = this.doc.createElement("div");
       columns.className = "bi-columns";
       const translation = this.doc.createElement("div");
@@ -531,6 +597,14 @@ export class BilingualView {
     return element;
   }
   showImage(image: PDFImage, blocks: Block[]) {
+    const mathOwner = blocks.find((b) =>
+      b.inlineMath?.some((m) => m.id === image.captionID),
+    );
+    if (mathOwner && image.captionID) {
+      this.mathImages.set(image.captionID, image);
+      this.renderInlineMath(mathOwner);
+      return;
+    }
     const anchor =
       blocks.find((b) => b.id === image.captionID) ||
       imageAnchor(image, blocks);
@@ -552,12 +626,18 @@ export class BilingualView {
     }
     const row = this.rows.get(anchor.id)?.row;
     if (!row) return;
-    if (anchor.kind === "equation") row.dataset.originalEquation = "true";
+    row.querySelector(".bi-equation-loading")?.remove();
+    if (["equation", "original-page"].includes(anchor.kind))
+      row.dataset.originalEquation = "true";
     let group = row.querySelector<HTMLElement>(".bi-images");
     if (!group) {
       group = this.doc.createElement("div");
       group.className = "bi-images";
-      if (/^table\b/i.test(anchor.source.trim())) row.append(group);
+      if (
+        anchor.kind === "original-page" ||
+        /^table\b/i.test(anchor.source.trim())
+      )
+        row.append(group);
       else row.prepend(group);
     }
     if (group.querySelector(`[data-image-id="${image.id}"]`)) return;
@@ -600,11 +680,13 @@ export class BilingualView {
     const caption = this.doc.createElement("figcaption");
     caption.append(
       this.doc.createTextNode(
-        (anchor.kind === "equation"
-          ? "原文公式 · p. "
-          : image.preview
-            ? "图表预览 · p. "
-            : "原图 · p. ") +
+        (anchor.kind === "original-page"
+          ? "原版保留 · p. "
+          : anchor.kind === "equation"
+            ? "原文公式 · p. "
+            : image.preview
+              ? "图表预览 · p. "
+              : "原图 · p. ") +
           anchor.pageLabel +
           " · 点击图片放大 ",
       ),
@@ -674,6 +756,7 @@ export class BilingualView {
       this.onHover,
     );
     row.translation.classList.toggle("bi-wait", !block.translation);
+    this.renderInlineMath(block);
   }
   emphasize(key?: string) {
     for (const mark of Array.from(

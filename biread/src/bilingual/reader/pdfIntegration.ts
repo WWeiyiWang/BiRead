@@ -64,7 +64,9 @@ export async function jumpToBlock(integration: PDFIntegration, block: Block) {
     pageIndex: block.pageIndex,
     position: {
       pageIndex: block.pageIndex,
-      rects: block.anchors.slice(0, 1).map((a) => a.rect),
+      rects: block.originalRegion
+        ? [block.originalRegion.rect]
+        : block.anchors.slice(0, 1).map((a) => a.rect),
     },
   });
 }
