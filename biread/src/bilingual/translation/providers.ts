@@ -6,6 +6,7 @@ import { academicPrompt } from "./academicPrompt";
 import { relevantGlossary } from "../glossary/documentGlossary";
 
 import { protectText, glossaryParts } from "./textProtection";
+import { translateContinuous } from "./continuousTranslation";
 const prefixes: Record<string, string> = {
   chatgpt: "chatGPT",
   customgpt1: "customGPT1",
@@ -219,25 +220,16 @@ export async function translateBlock(
       };
     });
   }
-  // MT cannot follow JSON instructions. Keep protected spans locally instead
-  // of asking an ordinary translator to preserve artificial tokens.
+  // Translate complete sentences first; verify marker integrity before any
+  // restored math/citation/terminology is displayed or cached.
   const result = [];
   for (const segment of block.segments) {
-    let translation = "";
-    for (const part of protectedSegments
+    const parts = protectedSegments
       .get(segment.id)!
       .parts.flatMap((part) =>
         part.protected ? [part] : glossaryParts(part.text, context.glossary),
-      )) {
-      if (part.protected || !/[a-zA-Z]/.test(part.text))
-        translation += part.text;
-      else {
-        const leading = part.text.match(/^\s*/)?.[0] || "";
-        const trailing = part.text.match(/\s*$/)?.[0] || "";
-        translation +=
-          leading + (await run(part.text.trim())).trim() + trailing;
-      }
-    }
+      );
+    const translation = await translateContinuous(parts, run);
     result.push({ id: segment.id, translation });
   }
   return result;

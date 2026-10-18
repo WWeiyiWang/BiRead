@@ -7,10 +7,12 @@ import {
   preciseSourceRange,
 } from "../alignment/selectionMapping";
 import { loadGlossary } from "../glossary/documentGlossary";
-import { localModelConfigured, localModelRange } from "../alignment/localModel";
+import { localModelConfigured } from "../alignment/localModel";
+import { alignedSelectionRange } from "../alignment/annotationRange";
 import {
   annotationMappings,
   sourceRects,
+  samePosition,
   type CanonicalAnnotation,
   type ExactMapping,
 } from "./annotationMapping";
@@ -56,16 +58,17 @@ export class AnnotationBridge {
   private refreshSequence = 0;
   private alignmentQueue: Promise<void> = Promise.resolve();
   private attempted = new Set<string>();
+  private displayed = new Map<string, string>();
+  private readerQueue: Promise<void> = Promise.resolve();
+  nativeSyncError = "";
+  retryAlignment() {
+    this.attempted.clear();
+    if (!this.disposed) this.changed();
+  }
   // Native PDF annotations bypass create(). Resolve them after either the
   // annotation or its translated block becomes available.
   reconcile(block: Block) {
-    if (
-      this.disposed ||
-      !this.storeName ||
-      !block.translation ||
-      !localModelConfigured()
-    )
-      return;
+    if (this.disposed || !this.storeName || !block.translation) return;
     for (const mapping of annotationMappings(
       block,
       this.annotations,
@@ -82,6 +85,7 @@ export class AnnotationBridge {
       const signature = JSON.stringify([
         key,
         block.id,
+        localModelConfigured(),
         source,
         translation,
         position,
@@ -103,7 +107,7 @@ export class AnnotationBridge {
             block.source !== source ||
             block.translation !== translation ||
             !this.annotations.some(
-              (a) => a.key === key && JSON.stringify(a.position) === position,
+              (a) => a.key === key && samePosition(position, a.position),
             )
           )
             return;
@@ -115,10 +119,14 @@ export class AnnotationBridge {
                 m.blockID === block.id &&
                 m.source === source &&
                 m.translation === translation &&
-                m.position === position,
+                samePosition(m.position, annotation.position) &&
+                m.end > m.start,
             )
           )
             return;
+          this.exact = this.exact.filter(
+            (m) => !(m.key === key && m.blockID === block.id),
+          );
           this.exact.push({
             key,
             blockID: block.id,
@@ -132,6 +140,42 @@ export class AnnotationBridge {
           });
           await writeJSON(this.storeName, this.exact);
           if (!this.disposed) this.changed();
+        })
+        .catch((error) => Zotero.logError(error));
+    }
+    for (const local of this.local.filter(
+      (a) =>
+        this.integration.item.isEditable() &&
+        a.blockID === block.id &&
+        a.source === block.source &&
+        a.translation === block.translation,
+    )) {
+      const signature = JSON.stringify([
+        local.key,
+        block.id,
+        block.source,
+        block.translation,
+        localModelConfigured(),
+      ]);
+      if (this.attempted.has(signature)) continue;
+      this.attempted.add(signature);
+      this.alignmentQueue = this.alignmentQueue
+        .then(async () => {
+          if (this.disposed || !this.local.includes(local)) return;
+          const { counterpart } = await this.resolvePair(
+            block,
+            "translation",
+            local.start,
+            local.end,
+          );
+          if (counterpart && !this.disposed && this.local.includes(local))
+            await this.rebind(
+              local.key,
+              block,
+              counterpart,
+              [local.start, local.end],
+              false,
+            );
         })
         .catch((error) => Zotero.logError(error));
     }
@@ -184,6 +228,36 @@ export class AnnotationBridge {
     if (this.disposed || sequence !== this.refreshSequence) return;
     this.annotations = annotations;
     this.changed();
+    // Saving the canonical item and painting it in a reader are separate async
+    // operations in Zotero. Await the paint before navigating to the annotation.
+    const reader = this.integration.reader;
+    if (reader?.setAnnotations) {
+      this.readerQueue = this.readerQueue.then(async () => {
+        if (this.disposed || sequence !== this.refreshSequence) return;
+        const next = new Map(
+          annotations.map((a) => [a.key, JSON.stringify(a)]),
+        );
+        const changed = items.filter(
+          (item) =>
+            next.has(item.key) &&
+            next.get(item.key) !== this.displayed.get(item.key),
+        );
+        const removed = [...this.displayed.keys()].filter(
+          (key) => !next.has(key),
+        );
+        try {
+          if (changed.length) await reader.setAnnotations(changed);
+          if (removed.length) await reader.unsetAnnotations?.(removed);
+          this.displayed = next;
+          this.nativeSyncError = "";
+        } catch (error) {
+          this.nativeSyncError =
+            "标注已保存到 Zotero，但原 PDF 显示更新失败；请重新打开阅读器。";
+          Zotero.logError(error as Error);
+        }
+      });
+      await this.readerQueue;
+    }
   }
   mappings(block: Block): LinkedAnnotation[] {
     return [
@@ -299,6 +373,7 @@ export class AnnotationBridge {
     block: Block,
     source: [number, number],
     target: [number, number],
+    confirmed = true,
   ) {
     if (this.disposed || !this.integration.item.isEditable())
       throw new Error("标注不可编辑。");
@@ -336,7 +411,7 @@ export class AnnotationBridge {
     ].join("|");
     const newKey = local ? key.replace(/^local-/, "") : key;
     const mapping: ExactMapping = {
-      confirmed: true,
+      confirmed,
       key: newKey,
       blockID: block.id,
       source: block.source,
@@ -458,7 +533,7 @@ export class AnnotationBridge {
         m.source === block.source &&
         m.translation === block.translation &&
         this.annotations.some(
-          (a) => a.key === m.key && JSON.stringify(a.position) === m.position,
+          (a) => a.key === m.key && samePosition(m.position, a.position),
         ),
     );
     const remembered = known
@@ -473,15 +548,17 @@ export class AnnotationBridge {
         ? [remembered.start, remembered.end]
         : [remembered.sourceStart, remembered.sourceEnd]
       : match(block, start, end, candidates);
+    if (!counterpart && snapshot)
+      counterpart = await alignedSelectionRange(
+        block,
+        side,
+        start,
+        end,
+        async () => undefined,
+      );
     if (!counterpart && localModelConfigured() && snapshot) {
       try {
-        counterpart = await localModelRange(
-          sourceSnapshot,
-          snapshot,
-          side,
-          start,
-          end,
-        );
+        counterpart = await alignedSelectionRange(block, side, start, end);
         if (counterpart) this.alignmentStatus = "本地 ONNX 模型（CPU，离线）";
       } catch (error) {
         this.alignmentStatus = `本地模型未完成对齐：${String(error)}。已保留所选标注，可手动绑定。`;

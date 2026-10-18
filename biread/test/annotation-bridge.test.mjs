@@ -122,6 +122,7 @@ function fixture(candidate) {
   return {
     block,
     items,
+    integration,
     newBridge,
     setGlossary: async (glossary) => {
       const hash = [
@@ -168,6 +169,112 @@ test("Chinese selection remains highlighted, editable and persistent when provid
   assert.equal(bridge.mappings(block)[0].color, "#ff6666");
   await bridge.remove(key);
   assert.equal(bridge.mappings(block).length, 0);
+});
+
+test("existing unmatched English mark can acquire a counterpart later", async () => {
+  const { block, newBridge, setGlossary } = fixture();
+  const bridge = newBridge();
+  await bridge.start();
+  const start = block.source.indexOf("collective memory");
+  const key = await bridge.create(
+    block,
+    "source",
+    start,
+    start + 17,
+    "#ffd400",
+    "underline",
+  );
+  assert.equal(bridge.binding(key).mapping.translation.text, "");
+  await setGlossary({ "collective memory": "集体记忆" });
+  await bridge.reconcile(block);
+  assert.equal(bridge.binding(key).mapping.translation.text, "集体记忆");
+  assert.equal(bridge.binding(key).mapping.type, "underline");
+});
+
+test("local Chinese mark is promoted with its colour, underline and note intact", async () => {
+  const { block, newBridge, setGlossary, items } = fixture();
+  const bridge = newBridge();
+  await bridge.start();
+  const local = await bridge.create(
+    block,
+    "translation",
+    4,
+    8,
+    "#5fb236",
+    "underline",
+  );
+  await bridge.comment(local, "preserve my note");
+  await setGlossary({ "collective memory": "集体记忆" });
+  await bridge.reconcile(block);
+  const key = local.replace("local-", "");
+  assert.equal(bridge.isLocal(local), false);
+  assert.equal(items.size, 1);
+  assert.equal(items.get(key).annotationComment, "preserve my note");
+  assert.equal(items.get(key).annotationColor, "#5fb236");
+  assert.equal(items.get(key).annotationType, "underline");
+  const reopened = newBridge();
+  await reopened.start();
+  assert.equal(reopened.binding(key).mapping.translation.text, "集体记忆");
+  assert.equal(reopened.binding(key).mapping.source.text, "collective memory");
+});
+
+test("canonical save, colour edit and deletion update the native reader immediately", async () => {
+  const { block, newBridge, setGlossary, items, integration } = fixture();
+  const paints = [],
+    removed = [];
+  integration.reader = {
+    setAnnotations: async (items) =>
+      paints.push(
+        items.map((i) => ({
+          key: i.key,
+          color: i.annotationColor,
+          type: i.annotationType,
+        })),
+      ),
+    unsetAnnotations: async (keys) => removed.push(keys),
+  };
+  await setGlossary({ "collective memory": "集体记忆" });
+  const bridge = newBridge();
+  await bridge.start();
+  const key = await bridge.create(
+    block,
+    "translation",
+    4,
+    8,
+    "#5fb236",
+    "underline",
+  );
+  assert.deepEqual(paints.at(-1), [
+    { key, color: "#5fb236", type: "underline" },
+  ]);
+  await bridge.color(key, "#ff6666");
+  assert.equal(paints.at(-1)[0].color, "#ff6666");
+  items.get(key).eraseTx = async () => items.delete(key);
+  await bridge.remove(key);
+  assert.deepEqual(removed, [[key]]);
+  assert.equal(bridge.mappings(block).length, 0);
+});
+
+test("reader coordinate rounding keeps the exact Chinese selection until the PDF mark moves", async () => {
+  const { block, newBridge, setGlossary, items } = fixture();
+  for (const a of block.anchors) a.rect = a.rect.map((n) => n + 0.0004);
+  await setGlossary({ "collective memory": "集体记忆" });
+  const bridge = newBridge();
+  await bridge.start();
+  const key = await bridge.create(block, "translation", 4, 8, "#ffd400");
+  const position = JSON.parse(items.get(key).annotationPosition);
+  items.get(key).annotationPosition = JSON.stringify({
+    rects: position.rects.map((r) => r.map((n) => Math.round(n * 1000) / 1000)),
+    pageIndex: 0,
+  });
+  await bridge.refresh();
+  assert.equal(bridge.binding(key).mapping.translation.text, "集体记忆");
+  items.get(key).annotationPosition = JSON.stringify({
+    pageIndex: 0,
+    rects: [[0, 700, 40, 710]],
+  });
+  await bridge.refresh();
+  assert.equal(bridge.binding(key).mapping.translation.text, "");
 });
 
 test("English word only marks the matching Chinese phrase", async () => {

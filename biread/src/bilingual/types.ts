@@ -1,5 +1,7 @@
 export type Rect = [number, number, number, number];
 export interface Glyph {
+  baseline?: number;
+  inlineMath?: { id: string; token: string; rect: Rect };
   rotation?: number;
   text: string;
   rect: Rect;
@@ -85,7 +87,7 @@ export interface PageFurniture {
   glyphs: Glyph[];
   rules: Rect[];
 }
-export const DOCUMENT_PARSER_VERSION = 21;
+export const DOCUMENT_PARSER_VERSION = 23;
 export interface DocumentData {
   version: 1;
   parserVersion?: number;

@@ -22,7 +22,7 @@ export class TranslationCache {
       "translation-" +
       (await digest(
         JSON.stringify([
-          3,
+          4,
           this.identity,
           block.id,
           await digest(block.source),

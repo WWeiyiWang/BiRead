@@ -1,4 +1,5 @@
 import type { Glyph } from "../types";
+import { repairReadingOrder } from "./repairReadingOrder";
 
 // Zotero's getPageData returns processed reading order, including column and
 // paragraph boundaries. Preserve it; sorting all glyphs by Y interleaves columns.
@@ -39,6 +40,7 @@ export function readingOrder(chars: any[]): Glyph[] {
     const rect = Array.from(c.rect, Number) as Glyph["rect"];
     if (!rect.every(Number.isFinite)) continue;
     result.push({
+      baseline: Number.isFinite(c.baseline) ? c.baseline : undefined,
       text: c.u,
       rotation: Number(c.rotation) || 0,
       rect,
@@ -53,7 +55,9 @@ export function readingOrder(chars: any[]): Glyph[] {
         ),
       italic:
         !!c.italic ||
-        /italic|oblique|[-]Ital|LibertineT(?:I|BI)$/i.test(c.fontName || ""),
+        /italic|oblique|[-]Ital|[-]It\d*$|LibertineT(?:I|BI)$/i.test(
+          c.fontName || "",
+        ),
       spaceAfter: !!c.spaceAfter,
       lineBreakAfter: !!c.lineBreakAfter,
       paragraphBreakAfter: !!c.paragraphBreakAfter,
@@ -80,5 +84,5 @@ export function readingOrder(chars: any[]): Glyph[] {
       if (gap > size * 0.18) a.spaceAfter = true;
     }
   }
-  return result;
+  return repairReadingOrder(result);
 }

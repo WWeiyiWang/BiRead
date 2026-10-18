@@ -19,6 +19,31 @@ export interface ExactMapping {
   sourceEnd: number;
   position: string;
 }
+// Reader edits may round PDF coordinates or reorder JSON properties. Neither
+// changes the selected text; a genuinely moved annotation invalidates the pair.
+export function samePosition(
+  saved: string,
+  current: CanonicalAnnotation["position"],
+) {
+  try {
+    const value = JSON.parse(saved) as CanonicalAnnotation["position"];
+    const equalRects = (a: Rect[] = [], b: Rect[] = []) =>
+      a.length === b.length &&
+      a.every(
+        (r, i) =>
+          r.length === 4 &&
+          b[i]?.length === 4 &&
+          r.every((n, j) => Math.abs(n - b[i][j]) <= 0.001),
+      );
+    return (
+      value.pageIndex === current.pageIndex &&
+      equalRects(value.rects, current.rects) &&
+      equalRects(value.nextPageRects, current.nextPageRects)
+    );
+  } catch {
+    return false;
+  }
+}
 export function containsCenter(rect: Rect, glyph: Rect) {
   const x = (glyph[0] + glyph[2]) / 2,
     y = (glyph[1] + glyph[3]) / 2;
@@ -62,7 +87,7 @@ export function annotationMappings(
         m.blockID === block.id &&
         m.source === block.source &&
         m.translation === block.translation &&
-        m.position === JSON.stringify(position),
+        samePosition(m.position, position),
     );
     const [targetStart, targetEnd] = saved
       ? [saved.start, saved.end]

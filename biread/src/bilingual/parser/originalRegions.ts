@@ -1,6 +1,7 @@
 import type { Block, Rect } from "../types";
 import { blockRect } from "./pdfImages";
 import { figureRegion } from "./figureRegions";
+import { textTableRegion } from "./textTables";
 import { segmentText } from "../alignment/segmentAlignment";
 import {
   preserveInlineMath,
@@ -8,6 +9,15 @@ import {
   splitMathContinuations,
 } from "./inlineMath";
 import { embedInlineMath } from "./embedInlineMath";
+import { preserveOpaqueInlineGlyphs } from "./opaqueInlineGlyphs";
+import { preserveImageEquations } from "./imageEquations";
+import { mergeFigurePanels } from "./figurePanels";
+import { contentLane, pageGeometry } from "./regionGeometry";
+import {
+  captionKind,
+  equationNumber,
+  mergeCaptionTranslations,
+} from "./regionLabels";
 
 const union = (a: Rect, b: Rect): Rect => [
   Math.min(a[0], b[0]),
@@ -22,13 +32,51 @@ const contains = (r: Rect, b: Block) =>
       y = (a.rect[1] + a.rect[3]) / 2;
     return x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3];
   });
+// Some engines concatenate several unrelated subscripts into a word (e.g.
+// "dww"). Small glyphs located inside an equation band are still its scripts.
+const equationScript = (b: Block, owner: Block) => {
+  if (
+    !b.fontSize ||
+    !owner.fontSize ||
+    b.fontSize >= owner.fontSize * 0.84 ||
+    !/^[A-Za-z\u0370-\u03ff0-9\s′']{1,16}$/.test(b.source) ||
+    !b.anchors.length
+  )
+    return false;
+  const r = blockRect(b),
+    q = blockRect(owner),
+    s = owner.fontSize;
+  return (
+    r[0] >= q[0] - s &&
+    r[2] <= q[2] + s &&
+    r[1] >= q[1] - s * 0.8 &&
+    r[3] <= q[3] + s * 0.8
+  );
+};
 /** Preserve complete non-prose regions before translation, including formula fragments. */
 export function preserveOriginalRegions(
   blocks: Block[],
   graphics: Rect[],
   box: Rect,
 ): Block[] {
-  blocks = splitMathContinuations(blocks);
+  const geometry = pageGeometry(box);
+  return preserveCanonicalRegions(
+    blocks.map((b) => geometry.block(b)),
+    graphics.map((r) => geometry.rect(r)),
+    geometry.canonical,
+  ).map((b) => {
+    const restored = geometry.block(b, true);
+    const original = blocks.find((candidate) => candidate.id === b.id);
+    return original ? Object.assign(original, restored) : restored;
+  });
+}
+
+function preserveCanonicalRegions(
+  blocks: Block[],
+  graphics: Rect[],
+  box: Rect,
+): Block[] {
+  blocks = splitMathContinuations(mergeCaptionTranslations(blocks));
   const removed = new Set<Block>();
   for (const b of blocks) {
     if (
@@ -43,15 +91,13 @@ export function preserveOriginalRegions(
     if (
       removed.has(owner) ||
       !owner.anchors.length ||
-      !/\(\d{1,3}\)\s*$/.test(owner.source) ||
+      !equationNumber(owner.source) ||
       owner.source.length > 240 ||
       (owner.source.match(/[A-Za-z]{3,}/g) || []).length > 1
     )
       continue;
     const seed = blockRect(owner);
-    const mid = (box[0] + box[2]) / 2;
-    const left = seed[0] >= mid ? mid : box[0];
-    const right = seed[0] >= mid ? box[2] : mid;
+    const [left, right] = contentLane(owner, blocks, box);
     const parts: Block[] = [];
     let band = seed;
     for (let changed = true; changed; ) {
@@ -62,8 +108,8 @@ export function preserveOriginalRegions(
           parts.includes(b) ||
           removed.has(b) ||
           !b.anchors.length ||
-          !isMathFragment(b.source) ||
-          /\(\d{1,3}\)\s*$/.test(b.source)
+          (!isMathFragment(b.source) && !equationScript(b, owner)) ||
+          equationNumber(b.source)
         )
           continue;
         const r = blockRect(b),
@@ -125,18 +171,36 @@ export function preserveOriginalRegions(
       block.kind === "paragraph" &&
       block.source.length < 180 &&
       /[=∑∫∏∝≈≠≤≥]/.test(block.source) &&
-      /\(\d{1,3}\)\s*$/.test(block.source) &&
+      equationNumber(block.source) &&
       (block.source.match(/[a-zA-Z]{3,}/g) || []).length < 3
     )
       block.kind = "equation";
   }
+  const bodySizes = blocks
+    .filter(
+      (b) => b.kind === "paragraph" && b.source.length > 140 && b.fontSize,
+    )
+    .map((b) => b.fontSize!)
+    .sort((a, b) => a - b);
+  const bodySize = bodySizes[Math.floor(bodySizes.length / 2)] || 0;
+  const captionRegions = new Map(
+    blocks
+      .filter((b) => b.kind === "caption" && b.anchors.length)
+      .map((b) => [
+        b.id,
+        (captionKind(b.source) === "table" &&
+          textTableRegion(b, graphics, blocks)) ||
+          figureRegion(b, graphics, box, blocks),
+      ]),
+  );
   for (const owner of blocks) {
     if (removed.has(owner) || !owner.anchors.length) continue;
     if (owner.originalRegion?.kind === "equation") continue;
     const equation = owner.kind === "equation";
-    const table = owner.kind === "caption" && /^table\s*\d/i.test(owner.source);
+    const table =
+      owner.kind === "caption" && captionKind(owner.source) === "table";
     const figure =
-      owner.kind === "caption" && /^fig(?:ure)?\.?\s*\d/i.test(owner.source);
+      owner.kind === "caption" && captionKind(owner.source) === "figure";
     if (!equation && !table && !figure) continue;
     let r = blockRect(owner);
     const members: Block[] = [];
@@ -153,7 +217,7 @@ export function preserveOriginalRegions(
             members.includes(b) ||
             removed.has(b) ||
             !b.anchors.length ||
-            !isMathFragment(b.source) ||
+            (!isMathFragment(b.source) && !equationScript(b, owner)) ||
             b.kind === "caption" ||
             b.kind === "heading"
           )
@@ -175,8 +239,7 @@ export function preserveOriginalRegions(
       }
     } else {
       const cells = blocks.filter((b) => b.table?.captionID === owner.id);
-      let region =
-        cells[0]?.table?.rect || figureRegion(owner, graphics, box, blocks);
+      let region = cells[0]?.table?.rect || captionRegions.get(owner.id);
       // Rotated tables have a vertical caption and parallel vertical text runs.
       const c = blockRect(owner);
       if (owner.rotation === 90 || owner.rotation === 270) {
@@ -215,6 +278,8 @@ export function preserveOriginalRegions(
         // Small-type, adjacent caption columns can contain math emitted in
         // separate PDF runs. Preserve their geometry instead of reflowing it.
         const captionSize = owner.fontSize || 0;
+        const distinctCaptionStyle =
+          owner.bold || (bodySize && captionSize < bodySize * 0.94);
         let band = union(r, c);
         const captionParts = new Set<Block>();
         let expanded = true;
@@ -231,7 +296,25 @@ export function preserveOriginalRegions(
               b.fontSize > captionSize * 1.08
             )
               continue;
+            if (
+              !distinctCaptionStyle &&
+              (b.source.length > 100 ||
+                /^(?:The|This|We|Our|A |An |In |For )/.test(b.source))
+            )
+              continue;
             const q = blockRect(b);
+            if (
+              [...captionRegions].some(
+                ([id, other]) =>
+                  id !== owner.id &&
+                  other &&
+                  q[0] >= other[0] &&
+                  q[2] <= other[2] &&
+                  q[1] >= other[1] &&
+                  q[3] <= other[3],
+              )
+            )
+              continue;
             if (
               q[0] < r[0] ||
               q[2] > r[2] ||
@@ -298,6 +381,32 @@ export function preserveOriginalRegions(
       else if (r[3] <= captionRect[1])
         padded[3] = Math.min(padded[3], captionRect[1] - 2);
     }
+    if (figure && !owner.rotation) {
+      // Padding must not pick up the descenders of the preceding paragraph or
+      // caption. Inspect glyphs, since one native block can span several lines.
+      const padded = owner.originalRegion.rect;
+      for (const b of blocks) {
+        if (
+          b === owner ||
+          members.includes(b) ||
+          removed.has(b) ||
+          (b.kind !== "caption" &&
+            b.source.length < 100 &&
+            !(
+              (b.fontSize || 0) > (owner.fontSize || 10) * 1.08 &&
+              (/^[IVXLCDM]+\.$/.test(b.source) ||
+                (b.source.match(/[A-Za-z]{3,}/g) || []).length >= 3)
+            ))
+        )
+          continue;
+        for (const a of b.anchors) {
+          const q = a.rect;
+          if (q[2] <= padded[0] || q[0] >= padded[2]) continue;
+          if ((q[1] + q[3]) / 2 > r[3] && q[1] >= r[3] - 8 && q[1] < padded[3])
+            padded[3] = Math.min(padded[3], q[1] - 1);
+        }
+      }
+    }
     if (equation) {
       for (const b of members) {
         const offset = owner.source.length + 1;
@@ -312,9 +421,51 @@ export function preserveOriginalRegions(
       }
       owner.segments = segmentText(owner.source, owner.id);
     }
+    if (figure || table) {
+      // Native runs can concatenate labels from separate figures. Ownership is
+      // per glyph: keep text outside this crop for its own figure or paragraph.
+      const region = owner.originalRegion.rect;
+      for (const b of blocks) {
+        if (
+          b === owner ||
+          removed.has(b) ||
+          members.includes(b) ||
+          ["caption", "title", "footnote"].includes(b.kind) ||
+          b.source.length > 140 ||
+          /[.!?。]\s*$/.test(b.source)
+        )
+          continue;
+        const outside = b.anchors.filter((a) => {
+          const x = (a.rect[0] + a.rect[2]) / 2,
+            y = (a.rect[1] + a.rect[3]) / 2;
+          return (
+            x < region[0] || x > region[2] || y < region[1] || y > region[3]
+          );
+        });
+        if (outside.length === b.anchors.length) continue;
+        if (!outside.length) {
+          members.push(b);
+          continue;
+        }
+        let source = "";
+        const anchors: Block["anchors"] = [];
+        for (let i = 0; i < outside.length; i++) {
+          const a = outside[i],
+            prev = outside[i - 1];
+          if (prev && /\s/.test(b.source.slice(prev.end, a.start)))
+            source += " ";
+          const start = source.length;
+          source += b.source.slice(a.start, a.end);
+          anchors.push({ ...a, start, end: source.length });
+        }
+        b.source = source;
+        b.anchors = anchors;
+        b.segments = segmentText(source, b.id);
+      }
+    }
     for (const b of members) removed.add(b);
   }
-  const retained = blocks.filter((b) => !removed.has(b));
+  const retained = mergeFigurePanels(blocks.filter((b) => !removed.has(b)));
   // A large formula may have multiple equation seeds; overlapping crops are
   // one visual object, including radical bars and tall bracket components.
   for (let i = 0; i < retained.length; i++) {
@@ -378,5 +529,9 @@ export function preserveOriginalRegions(
         r[1] = q[3] + 2;
     }
   }
-  return embedInlineMath(preserveInlineMath(retained));
+  return preserveImageEquations(
+    preserveOpaqueInlineGlyphs(embedInlineMath(preserveInlineMath(retained))),
+    graphics,
+    box,
+  );
 }

@@ -1,6 +1,7 @@
 import type { Block, Glyph, Rect } from "../types";
 import { blockRect } from "./pdfImages";
 import { segmentText } from "../alignment/segmentAlignment";
+import { captionKind } from "./regionLabels";
 const center = (g: Glyph) => [
   (g.rect[0] + g.rect[2]) / 2,
   (g.rect[1] + g.rect[3]) / 2,
@@ -9,6 +10,34 @@ const inside = (g: Glyph, r: Rect) => {
   const [x, y] = center(g);
   return x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3];
 };
+function mergeRuleSegments(graphics: Rect[]): Rect[] {
+  const result: Rect[] = [];
+  for (const r of graphics) {
+    if (r[3] - r[1] > 2.1) {
+      result.push(r);
+      continue;
+    }
+    let joined = [...r] as Rect;
+    for (let i = 0; i < result.length; i++) {
+      const q = result[i];
+      if (
+        q[3] - q[1] > 2.1 ||
+        Math.abs((q[1] + q[3] - joined[1] - joined[3]) / 2) > 1 ||
+        Math.max(q[0] - joined[2], joined[0] - q[2], 0) > 3
+      )
+        continue;
+      joined = [
+        Math.min(q[0], joined[0]),
+        Math.min(q[1], joined[1]),
+        Math.max(q[2], joined[2]),
+        Math.max(q[3], joined[3]),
+      ];
+      result.splice(i--, 1);
+    }
+    result.push(joined);
+  }
+  return result;
+}
 function lines(glyphs: Glyph[]) {
   const out: Glyph[][] = [];
   for (const g of [...glyphs].sort(
@@ -30,6 +59,30 @@ export function textTableRegion(
   graphics: Rect[],
   blocks: Block[] = [],
 ): Rect | undefined {
+  graphics = mergeRuleSegments(graphics);
+  const down = tableBelow(caption, graphics, blocks);
+  const flip = (r: Rect): Rect => [r[0], -r[3], r[2], -r[1]];
+  const mirrored = blocks.map((b) => ({
+    ...b,
+    anchors: b.anchors.map((a) => ({ ...a, rect: flip(a.rect) })),
+  }));
+  const owner = mirrored.find((b) => b.id === caption.id) || {
+    ...caption,
+    anchors: caption.anchors.map((a) => ({ ...a, rect: flip(a.rect) })),
+  };
+  const reflected = tableBelow(owner, graphics.map(flip), mirrored);
+  const up = reflected && flip(reflected);
+  if (!up) return down;
+  if (!down) return up;
+  const c = blockRect(caption);
+  return Math.max(0, up[1] - c[3]) < Math.max(0, c[1] - down[3]) ? up : down;
+}
+
+function tableBelow(
+  caption: Block,
+  graphics: Rect[],
+  blocks: Block[],
+): Rect | undefined {
   const c = blockRect(caption);
   const lowerBoundary = Math.max(
     -Infinity,
@@ -47,7 +100,7 @@ export function textTableRegion(
   );
   const rules = graphics.filter(
     (r) =>
-      r[3] - r[1] < 1.5 &&
+      r[3] - r[1] < 2.1 &&
       r[2] - r[0] > 80 &&
       r[3] < c[3] &&
       r[1] > lowerBoundary &&
@@ -63,7 +116,12 @@ export function textTableRegion(
     .sort((a, b) => b[3] - a[3]);
   const run: Rect[] = [];
   for (const r of aligned) {
-    if (run.length && run[run.length - 1][1] - r[3] > 85) break;
+    if (
+      run.length &&
+      run[run.length - 1][1] - r[3] >
+        Math.max(120, (caption.fontSize || 10) * 12)
+    )
+      break;
     if (!run.length || Math.abs(run[run.length - 1][1] - r[1]) > 2) run.push(r);
   }
   if (run.length < 3 || top[3] - run[run.length - 1][1] < 25) return;
@@ -74,10 +132,11 @@ export function extractTextTables(
   graphics: Rect[],
   blocks: Block[],
 ): { cells: Block[]; consumed: Set<number> } {
+  graphics = mergeRuleSegments(graphics);
   const cells: Block[] = [];
   const consumed = new Set<number>();
   for (const caption of blocks.filter(
-    (b) => b.kind === "caption" && /^table\s*\d/i.test(b.source),
+    (b) => b.kind === "caption" && captionKind(b.source) === "table",
   )) {
     const rect = textTableRegion(caption, graphics, blocks);
     if (!rect) continue;
@@ -101,7 +160,7 @@ export function extractTextTables(
         graphics
           .filter(
             (r) =>
-              r[3] - r[1] < 1.5 &&
+              r[3] - r[1] < 2.1 &&
               Math.abs(r[0] - rect[0]) < 3 &&
               Math.abs(r[2] - rect[2]) < 3 &&
               r[1] >= rect[1] - 1 &&
@@ -123,7 +182,7 @@ export function extractTextTables(
     let cuts = graphics
       .filter(
         (r) =>
-          r[2] - r[0] < 1.5 &&
+          r[2] - r[0] < 2.1 &&
           r[3] - r[1] > (rect[3] - rect[1]) * 0.35 &&
           r[0] > rect[0] + 3 &&
           r[2] < rect[2] - 3 &&

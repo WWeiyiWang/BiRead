@@ -1,6 +1,7 @@
 import { textLines, lineText } from "./documentStructure";
 import type { Block, Glyph } from "../types";
 import { segmentText } from "../alignment/segmentAlignment";
+import { captionKind, equationNumber } from "./regionLabels";
 
 function sectionNumber(text: string) {
   // Measurements at the start of a wrapped body line are not section numbers.
@@ -11,8 +12,11 @@ function sectionNumber(text: string) {
     /[a-z][.!?]\s+[A-Z][a-z]/.test(text)
   )
     return null;
-  return text.match(
-    /^((?:\d+(?:\.\d+)*|[IVXLCDM]+|[A-Z]))(?:\.\s*|\s+)([A-Za-z].*)$/,
+  // Alphabetic/Roman markers require punctuation: the articles "A" and "I"
+  // at the start of an ordinary sentence are not section numbers.
+  return (
+    text.match(/^((?:\d+(?:\.\d+)*))(?:\.\s*|\s+)([A-Za-z].*)$/) ||
+    text.match(/^([IVXLCDM]+|[A-Z])\.\s*([A-Za-z].*)$/)
   );
 }
 
@@ -56,12 +60,14 @@ export function segmentPage(
   let source = "";
   let anchors: Block["anchors"] = [];
   let styles: Glyph[] = [];
+  let inlineMath: NonNullable<Block["inlineMath"]> = [];
   const flush = () => {
     source = source.trimEnd();
     if (!source.trim()) {
       source = "";
       anchors = [];
       styles = [];
+      inlineMath = [];
       return;
     }
     const id = `p${pageIndex}-c${anchors[0].charIndex}`;
@@ -73,7 +79,7 @@ export function segmentPage(
       references.active = false;
     if (referenceHeading) kind = "heading";
     else if (references.active) kind = "reference";
-    else if (/^(?:fig(?:ure)?\.?|table)\s*\d+/i.test(source)) kind = "caption";
+    else if (captionKind(source)) kind = "caption";
     else if (/^abstract[:：.]?\s*$/i.test(source)) kind = "heading";
     else if (/^abstract\b/i.test(source)) kind = "abstract";
     else if (/^(?:[•▪◦●‣–—-]\s*|\(?\d+[.)]\s+|[a-z][.)]\s+)/.test(source))
@@ -82,7 +88,7 @@ export function segmentPage(
       source.length < 180 &&
       /[=∑∫∏∝≈≠≤≥]/.test(source) &&
       ((source.match(/[a-zA-Z]{3,}/g) || []).length < 3 ||
-        (/\(\d{1,3}\)\s*$/.test(source) &&
+        (equationNumber(source) &&
           (source.match(/[a-zA-Z]{3,}/g) || []).length < 10))
     )
       kind = "equation";
@@ -94,6 +100,7 @@ export function segmentPage(
       pageHeight,
       source,
       anchors,
+      ...(inlineMath.length ? { inlineMath } : {}),
       rotation: styles.find((g) => g.text.trim())?.rotation || 0,
       fontSize: median(styles.map((g) => g.fontSize || 0)),
       bold: styles.filter((g) => g.bold).length > styles.length * 0.65,
@@ -103,6 +110,7 @@ export function segmentPage(
     source = "";
     anchors = [];
     styles = [];
+    inlineMath = [];
   };
   const lines = textLines(glyphs).flatMap(splitAbstractLabel);
   let previousSize = 0;
@@ -112,6 +120,7 @@ export function segmentPage(
     const line = lines[i],
       text = lineText(line),
       size = median(line.map((g) => g.fontSize || 0));
+    if (source && captionKind(source) && captionKind(text)) flush();
     // A paragraph cannot span disconnected columns. Large sideways jumps or
     // a return upwards indicate a new physical region, even without native breaks.
     if (source && previousLine) {
@@ -121,10 +130,12 @@ export function segmentPage(
       const prevRight = Math.max(...previousLine.map((g) => g.rect[2]));
       const top = Math.max(...line.map((g) => g.rect[3]));
       const prevTop = Math.max(...previousLine.map((g) => g.rect[3]));
+      const prevBottom = Math.min(...previousLine.map((g) => g.rect[1]));
       if (
         left >= prevRight ||
         right <= prevLeft ||
         top > prevTop + (size || 10) ||
+        prevBottom - top > Math.max(size || 10, previousSize || 10) * 1.5 ||
         // A column can widen below an inset abstract while its right edge
         // remains fixed. A single bounding rectangle would cover the abstract.
         (Math.abs(left - prevLeft) > (size || 10) * 3 &&
@@ -138,7 +149,7 @@ export function segmentPage(
     const numberedEquation =
       text.length < 180 &&
       /[=∑∫∏∝≈≠≤≥]/.test(text) &&
-      /\(\d{1,3}\)\s*$/.test(text) &&
+      !!equationNumber(text) &&
       (text.match(/[a-zA-Z]{3,}/g) || []).length < 10;
     if (numberedEquation) flush();
     // Keep a dotted-leader TOC entry and its page number together as one block.
@@ -167,6 +178,7 @@ export function segmentPage(
       const start = source.length;
       source += glyph.text;
       styles.push(glyph);
+      if (glyph.inlineMath) inlineMath.push(glyph.inlineMath);
       anchors.push({
         start,
         end: source.length,

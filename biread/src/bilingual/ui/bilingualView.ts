@@ -5,12 +5,27 @@ import type { Block, LinkedAnnotation, PageFurniture } from "../types";
 import { renderHighlights } from "../annotations/translatedHighlightRenderer";
 import { pageContinuations } from "../parser/pageContinuations";
 import { readerTheme } from "./readerTheme";
+import { selectionOffsets, restoreSelection } from "./textSelection";
 
 export class BilingualView {
   private mathImages = new Map<string, PDFImage>();
   private renderInlineMath(block: Block) {
     const row = this.rows.get(block.id);
     if (!row) return;
+    const selection = this.doc.getSelection();
+    const range =
+      selection?.rangeCount && !selection.isCollapsed
+        ? selection.getRangeAt(0)
+        : undefined;
+    const selectedCell =
+      range &&
+      [row.source, row.translation].find(
+        (cell) =>
+          cell.contains(range.startContainer) &&
+          cell.contains(range.endContainer),
+      );
+    const selected =
+      selectedCell && range ? selectionOffsets(selectedCell, range) : undefined;
     for (const math of block.inlineMath || []) {
       const image = this.mathImages.get(math.id);
 
@@ -30,6 +45,7 @@ export class BilingualView {
           if (at < 0) continue;
           const span = this.doc.createElement("span");
           span.dataset.inlineMath = math.id;
+          span.dataset.textToken = math.token;
           const text = this.doc.createElement("span");
           text.textContent = math.token;
           text.style.fontSize = "0";
@@ -55,6 +71,7 @@ export class BilingualView {
         }
       }
     }
+    if (selectedCell && selected) restoreSelection(selectedCell, selected);
   }
   private continuationUndo: (() => void)[] = [];
   private renderedBlocks: Block[] = [];
@@ -812,15 +829,13 @@ export class BilingualView {
     const blockID =
       cell.closest<HTMLElement>("[data-block-id]")?.dataset.blockId;
     if (!blockID) return;
-    const prefix = range.cloneRange();
-    prefix.selectNodeContents(cell);
-    prefix.setEnd(range.startContainer, range.startOffset);
-    const start = prefix.toString().length;
+    const offsets = selectionOffsets(cell, range);
+    if (!offsets) return;
     return {
       blockID,
       side: cell.dataset.side as "source" | "translation",
-      start,
-      end: start + range.toString().length,
+      start: offsets[0],
+      end: offsets[1],
     };
   }
 }

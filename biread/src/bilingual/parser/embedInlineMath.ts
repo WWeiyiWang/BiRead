@@ -1,5 +1,6 @@
 import type { Block } from "../types";
 import { segmentText } from "../alignment/segmentAlignment";
+import { equationNumber } from "./regionLabels";
 export function embedInlineMath(blocks: Block[]): Block[] {
   const removed = new Set<Block>();
   for (let i = 1; i < blocks.length; i++) {
@@ -14,7 +15,7 @@ export function embedInlineMath(blocks: Block[]): Block[] {
       prev.kind !== "paragraph" ||
       prev.pageIndex !== math.pageIndex ||
       removed.has(prev) ||
-      /\(\d+\)/.test(math.source)
+      equationNumber(math.source, false)
     )
       continue;
     const r = math.originalRegion.rect,

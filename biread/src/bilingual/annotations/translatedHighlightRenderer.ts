@@ -1,4 +1,9 @@
 import type { LinkedAnnotation } from "../types";
+import {
+  selectionOffsets,
+  restoreSelection,
+  logicalText,
+} from "../ui/textSelection";
 
 const rendered = new WeakMap<HTMLElement, string>();
 
@@ -24,15 +29,9 @@ export function renderHighlights(
     range &&
     container.contains(range.startContainer) &&
     container.contains(range.endContainer) &&
-    container.textContent === text
+    logicalText(container) === text
   ) {
-    const prefix = range.cloneRange();
-    prefix.selectNodeContents(container);
-    prefix.setEnd(range.startContainer, range.startOffset);
-    selected = [
-      prefix.toString().length,
-      prefix.toString().length + range.toString().length,
-    ];
+    selected = selectionOffsets(container, range);
   }
   const boundaries = new Set([0, text.length]);
   for (const mapping of mappings) {
@@ -116,24 +115,6 @@ export function renderHighlights(
   }
   container.replaceChildren(fragment);
   rendered.set(container, signature);
-  if (selected && selection) {
-    const restored = doc.createRange();
-    const walker = doc.createTreeWalker(container, 4);
-    let offset = 0,
-      begun = false;
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      const length = node.textContent?.length || 0;
-      if (!begun && selected[0] <= offset + length) {
-        restored.setStart(node, selected[0] - offset);
-        begun = true;
-      }
-      if (begun && selected[1] <= offset + length) {
-        restored.setEnd(node, selected[1] - offset);
-        selection.removeAllRanges();
-        selection.addRange(restored);
-        break;
-      }
-      offset += length;
-    }
-  }
+  if (selected && selected[1] <= text.length)
+    restoreSelection(container, selected);
 }

@@ -14,6 +14,8 @@ import type { DocumentData, Rect } from "../types";
 import { DOCUMENT_PARSER_VERSION } from "../types";
 import { readingOrder } from "./readingOrder";
 import { segmentPage, inferHierarchy } from "./blockSegmenter";
+import { captionKind } from "./regionLabels";
+import { restoreInlineFlow } from "./inlineFlow";
 
 export async function extractDocument(
   pdf: any,
@@ -51,7 +53,10 @@ export async function extractDocument(
   for (let pageIndex = 0; pageIndex < cleanPages.length; pageIndex++) {
     if (cancelled()) throw new Error("Cancelled");
     const { glyphs: allGlyphs, box } = cleanPages[pageIndex];
-    const { body: glyphs, notes } = separateFootnotes(cleanPages[pageIndex]);
+    const { body: glyphs, notes } = separateFootnotes({
+      glyphs: restoreInlineFlow(allGlyphs, pageIndex),
+      box,
+    });
     const label = labels?.[pageIndex] || String(pageIndex + 1);
     const retainedIndices = new Set(allGlyphs.map((g) => g.index));
     let graphics: Rect[] = [];
@@ -89,7 +94,9 @@ export async function extractDocument(
     };
     if (
       pdf.getGraphics &&
-      initial.some((b) => b.kind === "caption" && /^table\s*\d/i.test(b.source))
+      initial.some(
+        (b) => b.kind === "caption" && captionKind(b.source) === "table",
+      )
     ) {
       try {
         tables = extractTextTables(glyphs, graphics, initial);

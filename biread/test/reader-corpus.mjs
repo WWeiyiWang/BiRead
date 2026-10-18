@@ -111,6 +111,7 @@ try {
           () => false,
         );
         const blocks = doc.blocks;
+        window.auditBlocks = blocks;
         window.ui = new Audit.BilingualView(
           document,
           () => {},
@@ -198,7 +199,11 @@ try {
           if (
             !b ||
             b.kind !== expected.kind ||
-            (expected.level && b.headingLevel !== expected.level)
+            (expected.level && b.headingLevel !== expected.level) ||
+            (expected.contains &&
+              !expected.contains.every((text) => b.source.includes(text))) ||
+            (expected.minInline &&
+              (b.inlineMath?.length || 0) < expected.minInline)
           )
             throw Error(`Classification failed: ${expected.text}`);
         }
@@ -233,6 +238,27 @@ try {
         };
       }, entry);
       mkdirSync(dirname(outputPath), { recursive: true });
+      for (const shot of entry.previewShots || []) {
+        const src = await page.evaluate((shot) => {
+          const b = auditBlocks.find(
+            (b) =>
+              b.pageIndex + 1 === shot.page &&
+              (!shot.text || b.source.includes(shot.text)) &&
+              (!shot.kind || b.kind === shot.kind),
+          );
+          if (!b)
+            throw Error("Preview block not found: " + JSON.stringify(shot));
+          const img = document.querySelector(
+            `[data-block-id="${b.id}"] .bi-figure img`,
+          );
+          if (!img) throw Error("Preview image not found: " + b.id);
+          return img.src;
+        }, shot);
+        writeFileSync(
+          join(dirname(outputPath), entry.name + "-" + shot.name + ".png"),
+          Buffer.from(src.split(",")[1], "base64"),
+        );
+      }
       for (const shot of entry.screenshots || []) {
         await page.evaluate((shot) => {
           const b = auditBlocks.find((b) => b.source.includes(shot.text));
@@ -273,6 +299,23 @@ try {
       results.push({ name: entry.name, ...result });
       console.log(JSON.stringify(results.at(-1)));
     } finally {
+      if (entry.auditDetails) {
+        mkdirSync(dirname(outputPath), { recursive: true });
+        const details = await page.evaluate(() =>
+          (window.auditBlocks || []).map((b) => ({
+            id: b.id,
+            page: b.pageIndex + 1,
+            kind: b.kind,
+            source: b.source,
+            region: b.originalRegion,
+            inline: b.inlineMath,
+          })),
+        );
+        writeFileSync(
+          join(dirname(outputPath), entry.name + "-layout.json"),
+          JSON.stringify(details, null, 2),
+        );
+      }
       await page.close();
     }
   }

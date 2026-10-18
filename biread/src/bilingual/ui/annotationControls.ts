@@ -90,6 +90,7 @@ export class AnnotationControls {
         await installLocalModel((text) => {
           ui.status.textContent = text;
         });
+        this.bridge.retryAlignment();
       } catch (error) {
         ui.status.textContent = `安装未完成：${String(error)}。点击一键安装可重试；原有配置仍保留。`;
       } finally {
@@ -123,6 +124,7 @@ export class AnnotationControls {
             )
               throw new Error(`配置中的 ${key} 路径无效`);
           setPref("bilingual.localModel.config", path);
+          this.bridge.retryAlignment();
           ui.status.textContent =
             "已启用本地模型。下次选词时离线运行，点击标注后自动匹配；对应有误可手动修改。";
         } catch (error) {
@@ -332,8 +334,8 @@ export class AnnotationControls {
       this.ui.doc.defaultView?.getSelection()?.removeAllRanges();
       await this.inspect(key);
       this.ui.status.textContent = this.bridge.isLocal(key)
-        ? "中文高亮已保存在本机 BiRead；未可靠匹配英文，未修改原 PDF。"
-        : "标注已保存。";
+        ? "中文标注已保存在本机 BiRead；未可靠匹配英文，未同步原 PDF。"
+        : this.bridge.nativeSyncError || "标注已保存并同步到原 PDF。";
       this.ui.status.textContent += " " + this.bridge.alignmentStatus;
       this.ui.status.textContent += modelWarning;
       if (focusComment)
