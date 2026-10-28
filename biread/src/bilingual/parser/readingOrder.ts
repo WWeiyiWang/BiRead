@@ -28,6 +28,8 @@ export function readingOrder(chars: any[]): Glyph[] {
       ) {
         previous.lineBreakAfter = true;
         previous.paragraphBreakAfter = true;
+      } else if (previous && next && /^[-\u00ad]$/.test(c.u || c.c || "")) {
+        previous.joinsNextLine = true;
       }
     }
     if (

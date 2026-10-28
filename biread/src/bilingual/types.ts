@@ -1,6 +1,7 @@
 export type Rect = [number, number, number, number];
 export interface Glyph {
   baseline?: number;
+  joinsNextLine?: boolean;
   inlineMath?: { id: string; token: string; rect: Rect };
   rotation?: number;
   text: string;
@@ -44,6 +45,9 @@ export type BlockKind =
   | "reference"
   | "footnote";
 export interface Block {
+  links?: import("./parser/referenceLinks").ReadingLink[];
+  /** Corroborated visual paragraph; font heuristics must not turn it into a heading. */
+  layoutRole?: "prose";
   layoutIssues?: string[];
   inlineMath?: { id: string; token: string; rect: Rect }[];
   rotation?: number;
@@ -87,7 +91,7 @@ export interface PageFurniture {
   glyphs: Glyph[];
   rules: Rect[];
 }
-export const DOCUMENT_PARSER_VERSION = 23;
+export const DOCUMENT_PARSER_VERSION = 27;
 export interface DocumentData {
   version: 1;
   parserVersion?: number;

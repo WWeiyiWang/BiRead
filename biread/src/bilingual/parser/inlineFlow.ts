@@ -77,7 +77,7 @@ export function restoreInlineFlow(input: Glyph[], pageIndex: number): Glyph[] {
   );
   const lexical = new Map(
     words
-      .filter((w) => /^[A-Za-z]{2,}$/.test(wordText(w)))
+      .filter((w) => /^[A-Za-z]{2,}$/.test(wordText(w).normalize("NFKC")))
       .flatMap((w) => w.map((g) => [g, w.length] as const)),
   );
   const rows: Row[] = [];

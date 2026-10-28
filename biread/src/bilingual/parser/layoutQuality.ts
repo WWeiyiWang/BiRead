@@ -1,5 +1,8 @@
 import type { Block, Glyph, Rect } from "../types";
 import { isMathFragment } from "./inlineMath";
+import { segmentPage } from "./blockSegmenter";
+import { preserveOpaqueInlineGlyphs } from "./opaqueInlineGlyphs";
+import { blockRect } from "./pdfImages";
 
 export type LayoutIssue =
   | "no-text"
@@ -128,4 +131,130 @@ export function originalPage(
     originalRegion: { kind: "page", rect: [...box] },
     layoutIssues: issues,
   };
+}
+
+/** Acceptance is local: a defective region must never discard readable prose. */
+export function acceptLayout(
+  blocks: Block[],
+  issues: LayoutIssue[],
+  pageIndex: number,
+  label: string,
+  box: Rect,
+  glyphs: Glyph[] = [],
+): Block[] {
+  const visible = glyphs.filter((g) => g.text.trim());
+  if (!blocks.length && !visible.length)
+    return [originalPage(pageIndex, label, box, ["no-text"])];
+  const valid = (r: Rect) =>
+    r.every(Number.isFinite) && r[2] > r[0] && r[3] > r[1];
+  const clipped = (r: Rect): Rect => [
+    Math.max(box[0], r[0]),
+    Math.max(box[1], r[1]),
+    Math.min(box[2], r[2]),
+    Math.min(box[3], r[3]),
+  ];
+  const warn = (b: Block, issue: string) => {
+    b.layoutIssues = [...new Set([...(b.layoutIssues || []), issue])];
+  };
+  for (const b of blocks) {
+    if (b.originalRegion) {
+      const r = clipped(b.originalRegion.rect);
+      const overlapsProse =
+        b.originalRegion.kind === "figure" &&
+        blocks.some(
+          (p) =>
+            p !== b &&
+            p.kind === "paragraph" &&
+            p.anchors.length &&
+            p.anchors.filter((a) => contains(r, a.rect)).length >
+              p.anchors.length * 0.8,
+        );
+      if (!valid(r) || overlapsProse) {
+        delete b.originalRegion;
+        warn(b, "missing-visual-region");
+      } else b.originalRegion.rect = r;
+    }
+    // A malformed inline crop must not make the rest of its page disappear.
+    for (const math of b.inlineMath || []) {
+      const r = clipped(math.rect);
+      if (valid(r)) math.rect = r;
+      else warn(b, "invalid-region");
+    }
+  }
+  // Recover text omitted by layout/model grouping, using original character IDs.
+  // Valid preserved figures still mask their internal labels, avoiding duplicates.
+  const ids = new Set(blocks.flatMap((b) => b.anchors.map((a) => a.charIndex)));
+  const regions = blocks.flatMap((b) => [
+    ...(b.originalRegion ? [b.originalRegion.rect] : []),
+    ...(b.inlineMath || []).map((m) => m.rect).filter(valid),
+  ]);
+  const missing = visible.filter(
+    (g) => !ids.has(g.index) && !regions.some((r) => contains(r, g.rect)),
+  );
+  if (missing.length) {
+    const runs: Glyph[][] = [];
+    let lastPosition = -2;
+    const positions = new Map(visible.map((g, i) => [g, i]));
+    for (const g of missing) {
+      const position = positions.get(g)!;
+      if (position !== lastPosition + 1) runs.push([]);
+      runs[runs.length - 1].push({ ...g });
+      lastPosition = position;
+    }
+    for (const [i, run] of runs.entries()) {
+      const recovered = segmentPage(run, pageIndex, label, box[3] - box[1], {
+        active: false,
+      });
+      for (const b of recovered) {
+        b.id = `p${pageIndex}-recovered-${i}-${b.id}`;
+        b.segments.forEach((s, j) => {
+          s.id = `${b.id}-s${j}`;
+        });
+        warn(b, "recovered-text");
+        const first = Math.min(...b.anchors.map((a) => a.charIndex));
+        const next = blocks.findIndex(
+          (p) =>
+            p.anchors.length &&
+            Math.min(...p.anchors.map((a) => a.charIndex)) > first,
+        );
+        blocks.splice(next < 0 ? blocks.length : next, 0, b);
+      }
+    }
+  }
+  preserveOpaqueInlineGlyphs(blocks);
+  for (const b of blocks) {
+    const text = b.source.replace(/\$BIREAD_MATH_[^$]+\$/g, "");
+    const unreadable = /[\ue000-\uf8ff\ufffd]/u.test(text);
+    const fragment =
+      issues.includes("fragmented-math") &&
+      ["paragraph", "list"].includes(b.kind) &&
+      !b.inlineMath?.length &&
+      text.length < 80 &&
+      isMathFragment(text);
+    if (
+      !b.originalRegion &&
+      (unreadable ||
+        fragment ||
+        b.kind === "equation" ||
+        b.layoutIssues?.includes("invalid-region"))
+    ) {
+      const r = clipped(blockRect(b));
+      if (valid(r)) {
+        // Reuse the original-equation rendering path; only this bounded block
+        // is preserved, and never marked as an untranslated whole page.
+        b.originalRegion = { kind: "equation", rect: r };
+        b.kind = "equation";
+        delete b.inlineMath;
+        b.segments = [];
+        warn(b, "local-original");
+      }
+    }
+    if (
+      b.kind === "caption" &&
+      !b.originalRegion &&
+      !blocks.some((p) => p.table?.captionID === b.id)
+    )
+      warn(b, "missing-visual-region");
+  }
+  return blocks;
 }

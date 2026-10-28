@@ -210,6 +210,7 @@ export function inferHierarchy(blocks: Block[]) {
         .map((b) => b.fontSize || 0),
     ) || median(blocks.map((b) => b.fontSize || 0));
   for (const block of blocks) {
+    if (block.layoutRole === "prose") continue;
     if (block.table) continue;
     if (!["paragraph", "heading", "list"].includes(block.kind)) continue;
     const text = block.source.trim();

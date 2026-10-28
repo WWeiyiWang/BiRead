@@ -215,7 +215,7 @@ test("original formula absorbs nearby fragments but not prose", () => {
   assert.equal(eq.anchors.length, 2);
 });
 
-test("original structured table removes cell reflow and preserves caption", () => {
+test("original structured table retains translatable cells alongside the full preview", () => {
   const caption = block("Table 1. Results");
   caption.kind = "caption";
   const cell = block("Not provided");
@@ -228,7 +228,7 @@ test("original structured table removes cell reflow and preserves caption", () =
     [],
     [0, 0, 600, 800],
   );
-  assert.deepEqual(result, [caption]);
+  assert.deepEqual(result, [caption, cell]);
   assert.equal(caption.originalRegion.kind, "table");
 });
 

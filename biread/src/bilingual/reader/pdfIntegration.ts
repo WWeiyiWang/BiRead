@@ -2,6 +2,9 @@ import { graphicsRects } from "../parser/figureRegions";
 import { figurePreviews } from "./figurePreviews";
 import { embeddedImages } from "./embeddedImages";
 import type { Block } from "../types";
+import { getPref } from "../../utils/prefs";
+import type { LayoutRegion } from "../parser/modelLayout";
+import type { SourceLink } from "../parser/referenceLinks";
 
 // All use of private reader APIs is isolated here and capability-checked.
 export async function pdfIntegration(reader: any) {
@@ -11,9 +14,51 @@ export async function pdfIntegration(reader: any) {
   const win = view?._iframeWindow;
   const nativePDF = win?.PDFViewerApplication?.pdfDocument;
   const pdf = nativePDF && {
+    layoutRegions: undefined as LayoutRegion[][] | undefined,
     numPages: nativePDF.numPages,
     fingerprints: nativePDF.fingerprints || nativePDF.fingerprint,
     getPageLabels: () => nativePDF.getPageLabels(),
+    getLinks: async (pageIndex: number): Promise<SourceLink[]> => {
+      const page = await nativePDF.getPage(pageIndex + 1);
+      const annotations = await page.getAnnotations();
+      const result: SourceLink[] = [];
+      for (const annotation of annotations) {
+        if (annotation.subtype !== "Link" || !annotation.rect) continue;
+        const rect = Array.from(annotation.rect, Number) as SourceLink["rect"];
+        if (rect.length !== 4 || !rect.every(Number.isFinite)) continue;
+        if (annotation.url && /^https?:\/\//i.test(annotation.url)) {
+          result.push({ rect, url: String(annotation.url) });
+          continue;
+        }
+        try {
+          const dest =
+            typeof annotation.dest === "string"
+              ? await nativePDF.getDestination(annotation.dest)
+              : annotation.dest;
+          if (!Array.isArray(dest)) continue;
+          const index =
+            typeof dest[0] === "number"
+              ? dest[0]
+              : await nativePDF.getPageIndex(dest[0]);
+          if (
+            !Number.isInteger(index) ||
+            index < 0 ||
+            index >= nativePDF.numPages
+          )
+            continue;
+          const targetPoint =
+            dest[1]?.name === "XYZ" &&
+            Number.isFinite(dest[2]) &&
+            Number.isFinite(dest[3])
+              ? ([dest[2], dest[3]] as [number, number])
+              : undefined;
+          result.push({ rect, targetPageIndex: index, targetPoint });
+        } catch {
+          /* A broken PDF destination must not stop reading. */
+        }
+      }
+      return result;
+    },
     getGraphics: async (pageIndex: number) => {
       const page = Components.utils.waiveXrays(
         await nativePDF.getPage(pageIndex + 1),
@@ -41,12 +86,23 @@ export async function pdfIntegration(reader: any) {
   const path = await item.getFilePathAsync();
   if (!path) throw new Error("The PDF attachment is not available locally.");
   const stat = await IOUtils.stat(path);
+  const engineConfig = String(getPref("bilingual.layoutEngine.config") || "");
+  let engineStamp = 0;
+  if (engineConfig) {
+    try {
+      engineStamp = (await IOUtils.stat(engineConfig)).lastModified ?? 0;
+    } catch {
+      engineStamp = -1;
+    }
+  }
   const fingerprint = JSON.stringify([
     pdf.fingerprints || pdf.fingerprint,
     stat.size,
     stat.lastModified,
     pdf.numPages,
     10,
+    engineConfig,
+    engineStamp,
   ]);
   return {
     reader,

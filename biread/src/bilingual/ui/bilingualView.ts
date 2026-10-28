@@ -6,8 +6,22 @@ import { renderHighlights } from "../annotations/translatedHighlightRenderer";
 import { pageContinuations } from "../parser/pageContinuations";
 import { readerTheme } from "./readerTheme";
 import { selectionOffsets, restoreSelection } from "./textSelection";
+import { createReadingGuide, guideFigureImages } from "./readingGuide";
+import { portableReader } from "./portableReader";
 
 export class BilingualView {
+  onReference = (_link: import("../parser/referenceLinks").ReadingLink) => {};
+  preparePortable = async () => {};
+  private exporting = false;
+  private portableImages = new Map<string, PDFImage>();
+  private guidePanel?: HTMLElement;
+  private paperGuide?: import("../translation/paperGuide").PaperGuide;
+  generateGuide: import("./readingGuide").GuideOptions["generate"] =
+    async () => {
+      throw new Error("论文尚未就绪");
+    };
+  loadGuideFigure = async (_block: Block) => {};
+
   private mathImages = new Map<string, PDFImage>();
   private renderInlineMath(block: Block) {
     const row = this.rows.get(block.id);
@@ -215,6 +229,8 @@ export class BilingualView {
       #zpt-bilingual .bi-structured-table th { background:#8881; font-weight:700 }
       #zpt-bilingual .bi-structured-table .bi-row { position:static!important; margin:0; padding:0; border:0; width:auto!important; max-width:none }
       #zpt-bilingual .bi-structured-table .bi-meta { display:none }
+      #zpt-bilingual .bi-structured-table .bi-columns { grid-template-columns:1fr }
+      #zpt-bilingual .bi-structured-table .bi-translation { border-left:0; border-top:1px solid #8883; margin-top:6px; padding-top:6px }
       #zpt-bilingual .bi-structured-table .bi-text { padding:2px 6px; line-height:1.5 }
 
       #zpt-bilingual .bi-list { font-size:var(--reading-size,15px); line-height:var(--reading-line,1.8) }
@@ -278,6 +294,73 @@ export class BilingualView {
     }
     title.append(logo, doc.createTextNode("BiRead"));
     this.primary.append(title, pdfButton);
+    this.primary.append(
+      this.button("论文导读", () => {
+        this.guidePanel?.remove();
+        this.guidePanel = createReadingGuide(
+          doc,
+          this.renderedBlocks,
+          onBlock,
+          {
+            generate: this.generateGuide,
+            cached: this.paperGuide,
+            save: (guide) => {
+              this.paperGuide = guide;
+            },
+            figure: async (block) => {
+              await this.loadGuideFigure(block);
+              return guideFigureImages(
+                [...this.portableImages.values()],
+                block,
+              );
+            },
+          },
+        );
+        (this.guidePanel as HTMLDetailsElement).open = true;
+        this.list.before(this.guidePanel);
+      }),
+    );
+    this.primary.append(
+      this.button("导出离线阅读文件", async () => {
+        if (this.exporting) return;
+        this.exporting = true;
+        try {
+          if (!this.renderedBlocks.length)
+            throw new Error("请先打开论文并完成解析");
+          const { FilePicker } = ChromeUtils.importESModule(
+            "chrome://zotero/content/modules/filePicker.mjs",
+          ) as any;
+          const picker = new FilePicker();
+          picker.init(
+            Zotero.getMainWindow(),
+            "导出 BiRead 离线阅读文件",
+            picker.modeSave,
+          );
+          picker.appendFilter("BiRead 阅读文件", "*.html");
+          picker.defaultString = "BiRead-paper.html";
+          const result = await picker.show();
+          if (result !== picker.returnOK && result !== picker.returnReplace)
+            return;
+          const snapshot = this.renderedBlocks;
+          this.status.textContent = "正在准备全文公式与图表，完成后导出…";
+          await this.preparePortable();
+          if (snapshot !== this.renderedBlocks)
+            throw new Error("论文已切换，请重新导出");
+          await IOUtils.writeUTF8(
+            picker.file,
+            portableReader(this.renderedBlocks, [
+              ...this.portableImages.values(),
+            ]),
+          );
+          this.status.textContent =
+            "阅读文件已导出。包含当前已加载的图片和译文；未就绪内容在文件中明确提示。";
+        } catch (error) {
+          this.status.textContent = `导出失败：${String(error)}`;
+        } finally {
+          this.exporting = false;
+        }
+      }),
+    );
     this.controls.append(this.status);
     const ratio = doc.createElement("select");
     ratio.setAttribute("aria-label", "Column ratio");
@@ -438,6 +521,9 @@ export class BilingualView {
     return button;
   }
   showBlocks(blocks: Block[]) {
+    this.portableImages.clear();
+    this.paperGuide = undefined;
+    this.guidePanel?.remove();
     this.setContinuousReading(false);
     this.renderedBlocks = blocks;
     this.rows.clear();
@@ -479,7 +565,9 @@ export class BilingualView {
       if (block.kind === "equation") {
         const loading = this.doc.createElement("p");
         loading.className = "bi-equation-loading";
-        loading.textContent = "原文公式 · 等待加载";
+        loading.textContent = block.layoutIssues?.includes("local-original")
+          ? "局部原版 · 等待加载"
+          : "原文公式 · 等待加载";
         row.append(loading);
       }
       if (block.sectionID) row.dataset.sectionId = block.sectionID;
@@ -510,6 +598,22 @@ export class BilingualView {
         block.kind === "caption" ? "原图 / 原表 ↗" : "原文定位 ↗";
       jump.onclick = () => this.openBlock(block);
       meta.append(label, jump);
+      if (
+        block.kind === "caption" &&
+        block.layoutIssues?.includes("missing-visual-region")
+      ) {
+        const notice = this.doc.createElement("p");
+        notice.className = "bi-layout-notice";
+        notice.textContent =
+          "图表区域暂未可靠定位；正文和图注继续翻译，可点“原图 / 原表”查看完整原图。";
+        row.append(notice);
+      }
+      if (block.layoutIssues?.includes("local-original")) {
+        const notice = this.doc.createElement("p");
+        notice.className = "bi-layout-notice";
+        notice.textContent = "此处符号或公式保留原版，其余正文继续翻译。";
+        row.append(notice);
+      }
       if (block.kind === "original-page") {
         const notice = this.doc.createElement("p");
         notice.className = "bi-layout-notice";
@@ -600,6 +704,28 @@ export class BilingualView {
         tr.insertBefore(cell, next || null);
       } else section.append(row);
       this.rows.set(block.id, { row, source, translation });
+      if (block.links?.length) {
+        const links = this.doc.createElement("details");
+        links.className = "bi-reference-links";
+        const summary = this.doc.createElement("summary");
+        summary.textContent = `原文引用与链接 · ${block.links.length}`;
+        links.append(summary);
+        for (const link of block.links) {
+          const item = this.doc.createElement("div");
+          const preview = this.doc.createElement("p");
+          preview.textContent =
+            link.preview ||
+            (link.url
+              ? "原文中的外部链接"
+              : `原文目标页 ${Number(link.targetPageIndex) + 1}`);
+          item.append(
+            this.button(`${link.label} ↗`, () => this.onReference(link)),
+            preview,
+          );
+          links.append(item);
+        }
+        row.append(links);
+      }
       this.update(block, []);
     }
     this.list.append(fragment);
@@ -618,6 +744,7 @@ export class BilingualView {
       b.inlineMath?.some((m) => m.id === image.captionID),
     );
     if (mathOwner && image.captionID) {
+      this.portableImages.set(image.id, image);
       this.mathImages.set(image.captionID, image);
       this.renderInlineMath(mathOwner);
       return;
@@ -626,11 +753,25 @@ export class BilingualView {
       blocks.find((b) => b.id === image.captionID) ||
       imageAnchor(image, blocks);
     if (
+      anchor &&
+      image.captionID &&
+      blocks.some((b) => b.table?.captionID === image.captionID)
+    )
+      this.portableImages.set(image.id, { ...image, captionID: anchor.id });
+    if (
       !anchor ||
       (image.captionID &&
         blocks.some((b) => b.table?.captionID === image.captionID))
     )
       return;
+    for (const [id, stored] of this.portableImages) {
+      if (
+        stored.pageIndex === image.pageIndex &&
+        sameRegion(stored.rect, image.rect)
+      )
+        this.portableImages.delete(id);
+    }
+    this.portableImages.set(image.id, { ...image, captionID: anchor.id });
     for (const existing of Array.from(
       this.list.querySelectorAll(".bi-figure"),
     ) as HTMLElement[]) {

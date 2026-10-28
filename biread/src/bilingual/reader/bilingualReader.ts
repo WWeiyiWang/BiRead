@@ -21,11 +21,13 @@ import {
   translationContext,
   effectiveContext,
   supportsAcademic,
+  generatePaperGuide,
 } from "../translation/providers";
 import { translateProgressively } from "../translation/batching";
 import { getPref, setPref } from "../../utils/prefs";
 
 import { AnnotationControls } from "../ui/annotationControls";
+import { analyzeWithLocalEngine } from "./layoutEngine";
 class Session {
   readonly ui: BilingualView;
   private compare: CompareMode;
@@ -63,6 +65,40 @@ class Session {
       this.ui,
       () => this.document?.blocks || [],
     );
+    this.ui.generateGuide = (progress, cancelled) => {
+      const snapshot = this.document;
+      if (!snapshot) return Promise.reject(new Error("请先完成论文解析"));
+      return generatePaperGuide(
+        snapshot.blocks,
+        this.integration.item.id,
+        progress,
+        () => cancelled() || this.disposed || snapshot !== this.document,
+      );
+    };
+    this.ui.onReference = (link) => {
+      if (link.url && /^https?:\/\//i.test(link.url)) {
+        Zotero.launchURL(link.url);
+        return;
+      }
+      if (link.targetPageIndex !== undefined) {
+        this.lastBlock = this.ui.visibleBlock();
+        this.compare.set(false);
+        this.ui.root.hidden = true;
+        this.frame.hidden = true;
+        const point = link.targetPoint;
+        void integration.reader.navigate({
+          pageIndex: link.targetPageIndex,
+          ...(point
+            ? {
+                position: {
+                  pageIndex: link.targetPageIndex,
+                  rects: [[point[0], point[1], point[0] + 1, point[1] + 1]],
+                },
+              }
+            : {}),
+        });
+      }
+    };
     this.ui.onReadingMode = (mode) => {
       this.readingMode = mode;
       this.compare.set(mode === "compare");
@@ -106,6 +142,43 @@ class Session {
       this.ui,
       integration,
       () => this.document?.blocks || [],
+    );
+    this.ui.settings.append(
+      this.ui.button("配置本地版面引擎（实验）", async () => {
+        try {
+          const { FilePicker } = ChromeUtils.importESModule(
+            "chrome://zotero/content/modules/filePicker.mjs",
+          ) as any;
+          const picker = new FilePicker();
+          picker.init(
+            Zotero.getMainWindow(),
+            "选择 BiRead 排版引擎配置",
+            picker.modeOpen,
+          );
+          picker.appendFilter("引擎配置", "*.json");
+          if ((await picker.show()) !== picker.returnOK) return;
+          const config = (await IOUtils.readJSON(picker.file)) as any;
+          if (
+            ![config.python, config.model].every(
+              (v) => typeof v === "string" && PathUtils.isAbsolute(v),
+            ) ||
+            !(await IOUtils.exists(config.python)) ||
+            !(await IOUtils.exists(config.model))
+          )
+            throw new Error("配置或模型路径无效");
+          setPref("bilingual.layoutEngine.config", picker.file);
+          this.ui.status.textContent =
+            "本地版面引擎已配置，重启 Zotero 后对新解析生效。论文版面分析在本机运行。";
+        } catch {
+          this.ui.status.textContent =
+            "无法启用版面引擎，请检查安装和配置文件。";
+        }
+      }),
+      this.ui.button("停用本地版面引擎", () => {
+        setPref("bilingual.layoutEngine.config", "");
+        this.ui.status.textContent =
+          "已停用实验引擎，重启 Zotero 后恢复内置解析。";
+      }),
     );
     this.onBlockUpdate = (block) => this.annotations.update(block);
     this.ui.status.textContent = "Loading document…";
@@ -193,6 +266,17 @@ class Session {
         const i = this.integration;
         this.document = await loadDocument(i.identity, i.fingerprint);
         if (!this.document) {
+          if (getPref("bilingual.layoutEngine.config")) {
+            this.ui.status.textContent = "正在本地识别完整图表与正文区域…";
+            const path = await i.item.getFilePathAsync();
+            if (!path) throw new Error("原 PDF 不在本地，无法进行版面分析");
+            i.pdf.layoutRegions = await analyzeWithLocalEngine(
+              path,
+              () => this.disposed,
+            );
+            if (i.pdf.layoutRegions?.length !== i.pdf.numPages)
+              throw new Error("版面分析页数不匹配，未使用不完整结果");
+          }
           this.document = await extractDocument(
             i.pdf,
             i.identity,

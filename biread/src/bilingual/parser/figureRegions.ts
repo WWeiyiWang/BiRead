@@ -360,6 +360,39 @@ function canonicalFigureRegion(
   const above = () => regionAbove(caption, graphics, pageBox, pageBlocks);
   const up = above(),
     down = below();
+  if (!up && !down && captionKind(caption.source) !== "table") {
+    const c = blockRect(caption),
+      width = pageBox[2] - pageBox[0];
+    // Some journals put captions in an outer margin, level with the figure's
+    // top, rather than above/below it. Require a unique substantial graphic
+    // and reject any crop containing body prose; never use the intervening text.
+    const margin =
+      c[2] - c[0] < width * 0.18 &&
+      (c[0] > pageBox[0] + width * 0.78 || c[2] < pageBox[0] + width * 0.22);
+    if (margin) {
+      const candidates = graphics.filter(
+        (r) =>
+          r[2] - r[0] > width * 0.2 &&
+          r[3] - r[1] > (pageBox[3] - pageBox[1]) * 0.07 &&
+          Math.abs(r[3] - c[3]) < Math.max(8, (caption.fontSize || 10) * 2) &&
+          r[0] >= pageBox[0] &&
+          r[2] <= pageBox[2] &&
+          r[1] >= pageBox[1] &&
+          r[3] <= pageBox[3] &&
+          !pageBlocks.some(
+            (b) =>
+              b.kind === "paragraph" &&
+              b.source.length > 140 &&
+              b.anchors.some((a) => {
+                const x = (a.rect[0] + a.rect[2]) / 2,
+                  y = (a.rect[1] + a.rect[3]) / 2;
+                return x > r[0] && x < r[2] && y > r[1] && y < r[3];
+              }),
+          ),
+      );
+      if (candidates.length === 1) return candidates[0];
+    }
+  }
   if (!up) return down;
   if (!down) return up;
   const c = blockRect(caption);

@@ -37,6 +37,9 @@ export class PageLayout {
       #zpt-bilingual .bi-paper .bi-meta, #zpt-bilingual .bi-paper .bi-images, #zpt-bilingual .bi-paper .bi-table-text { display:none }
       #zpt-bilingual .bi-paper .bi-text { padding:0!important; margin:0!important; text-indent:0; line-height:1.25!important; font-size:inherit!important; font-weight:inherit!important; font-style:inherit!important; text-align:inherit!important; max-width:100%; box-sizing:border-box; }
       #zpt-bilingual .bi-paper .bi-row { min-width:0; box-sizing:border-box; overflow:auto; }
+      #zpt-bilingual .bi-paper .bi-reference-links { position:absolute; top:0; right:0; z-index:3; background:Canvas; color:CanvasText; font:12px system-ui; max-width:100%; max-height:100%; overflow:auto; }
+      #zpt-bilingual .bi-reference-links { font:13px/1.5 system-ui; margin-top:8px; }
+      #zpt-bilingual .bi-reference-links > div { padding:8px; border-top:1px solid #8883; }
       #zpt-bilingual .bi-paper .bi-columns { display:block }
       #zpt-bilingual .bi-paper > img { position:absolute; display:block; width:100%; object-fit:contain }
       #zpt-bilingual .bi-paper .bi-structured-table { position:absolute; margin:0; max-width:none }

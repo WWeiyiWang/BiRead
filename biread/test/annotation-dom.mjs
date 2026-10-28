@@ -141,6 +141,14 @@ try {
       inlineMath: [{ id: "math", token, rect: [90, 690, 115, 710] }],
       anchors: [],
       segments: [],
+      links: [
+        {
+          label: "[12]",
+          targetPageIndex: 3,
+          targetPoint: [50, 600],
+          preview: "12. Author. Study.",
+        },
+      ],
     };
     block.anchors = Array.from({ length: block.source.length }, (_, i) => ({
       start: i,
@@ -165,6 +173,24 @@ try {
       () => {},
     );
     ui.showBlocks([block]);
+    let visited;
+    ui.onReference = (link) => {
+      visited = link;
+    };
+    const reference = ui.root.querySelector(".bi-reference-links");
+    check(
+      reference && reference.textContent.includes("12. Author. Study."),
+      "Reference preview missing",
+    );
+    reference.querySelector("button").click();
+    check(
+      visited.targetPageIndex === 3 && visited.targetPoint[1] === 600,
+      "Reference destination lost",
+    );
+    check(
+      !reference.closest(".bi-text"),
+      "Reference controls must not alter text-selection offsets",
+    );
     let controls = new Audit.AnnotationControls(ui, integration, () => [block]);
     await controls.bridge.start();
     const cell = (side) => ui.root.querySelector(`[data-side=${side}]`);
@@ -278,6 +304,7 @@ try {
         "English highlight → Chinese and PDF",
         "PDF comparison mode",
         "reopen persistence",
+        "reference preview and exact destination",
       ],
       canonicalAnnotations: items.size,
     };

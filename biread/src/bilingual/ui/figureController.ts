@@ -10,11 +10,21 @@ export class FigureController {
   private busy = false;
   private slots = new Map<number, HTMLElement>();
   private loaded = new Set<number>();
+  private inFlight = new Map<number, Promise<void>>();
   constructor(
     private ui: BilingualView,
     private integration: PDFIntegration,
     private blocks: Block[],
   ) {
+    ui.loadGuideFigure = async (block) => {
+      await this.loadPage(block.pageIndex);
+    };
+    ui.preparePortable = async () => {
+      for (const page of new Set(blocks.map((b) => b.pageIndex))) {
+        if (this.disposed) throw new Error("阅读器已关闭");
+        await this.loadPage(page);
+      }
+    };
     const pages = new Map<number, Block>();
     for (const b of blocks)
       if (!pages.has(b.pageIndex)) pages.set(b.pageIndex, b);
@@ -70,6 +80,17 @@ export class FigureController {
     }
   }
   async loadPage(page: number) {
+    const pending = this.inFlight.get(page);
+    if (pending) return pending;
+    const work = this.renderPage(page);
+    this.inFlight.set(page, work);
+    try {
+      await work;
+    } finally {
+      this.inFlight.delete(page);
+    }
+  }
+  private async renderPage(page: number) {
     if (this.disposed || this.loaded.has(page)) return;
     const slot = this.slots.get(page);
     if (!slot) return;
@@ -89,6 +110,7 @@ export class FigureController {
       const required = pageBlocks.flatMap((b) => [
         ...(["equation", "original-page"].includes(b.kind) ||
         (b.kind === "caption" &&
+          !b.layoutIssues?.includes("missing-visual-region") &&
           !this.blocks.some((cell) => cell.table?.captionID === b.id))
           ? [b.id]
           : []),
@@ -113,7 +135,16 @@ export class FigureController {
       // Embedded PDF images are component assets, not logical figures. On a
       // captioned page only the caption-owned composite crops may be displayed.
       if (pageBlocks.some((b) => b.kind === "caption")) {
-        slot.remove();
+        if (
+          pageBlocks.some(
+            (b) =>
+              b.layoutIssues?.includes("missing-visual-region") &&
+              !figures.some((f) => f.captionID === b.id),
+          )
+        )
+          slot.textContent =
+            "部分图表暂未定位。正文和图注继续翻译，可通过“原图 / 原表”查看完整原图。";
+        else slot.remove();
         return;
       }
       const result = await requestDeadline<{
@@ -150,6 +181,7 @@ export class FigureController {
           "部分图表未能可靠定位或提取，可使用图注旁的 OPEN IN PDF 查看。";
       else slot.remove();
     } catch (error) {
+      this.loaded.delete(page);
       Zotero.logError(error as Error);
       expired = true;
       if (!this.disposed) {

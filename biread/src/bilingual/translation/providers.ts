@@ -7,6 +7,65 @@ import { relevantGlossary } from "../glossary/documentGlossary";
 
 import { protectText, glossaryParts } from "./textProtection";
 import { translateContinuous } from "./continuousTranslation";
+import { buildPaperGuide, guideInstruction } from "./paperGuide";
+
+export async function generatePaperGuide(
+  blocks: Block[],
+  itemId: number,
+  progress: (done: number, total: number) => void,
+  cancelled: () => boolean,
+) {
+  const settings = translationContext({}, "standard");
+  if (!supportsAcademic(settings.provider))
+    throw new Error(
+      "AI 导读需要支持指令的大模型。请在翻译设置中选择并配置 ChatGPT、Claude、Gemini 或自定义大模型服务。",
+    );
+  const service = addon.data.translate.services.getServiceById(
+    settings.provider,
+  );
+  if (!service || service.type !== "sentence")
+    throw new Error("请先配置可用的大模型服务。");
+  const unchanged = () => {
+    const now = translationContext({}, "standard");
+    return (
+      now.provider === settings.provider &&
+      now.model === settings.model &&
+      now.endpoint === settings.endpoint
+    );
+  };
+  return buildPaperGuide(
+    blocks,
+    async (raw) => {
+      if (!unchanged()) throw new Error("模型设置已变更，请重新生成导读。");
+      const task: TranslateTask = {
+        id: "biread-paper-guide",
+        type: "custom",
+        raw,
+        result: "",
+        audio: [],
+        service: settings.provider,
+        candidateServices: [],
+        itemId,
+        langfrom: "en",
+        langto: "zh-CN",
+        status: "waiting",
+        extraTasks: [],
+        silent: true,
+        bilingualInstruction: guideInstruction,
+      };
+      await requestDeadline(
+        new TranslateTaskRunner(service.translate).run(task),
+        () => new Error("导读生成超时，请稍后重试。"),
+      );
+      if (!unchanged()) throw new Error("模型设置已变更，请重新生成导读。");
+      if (task.status !== "success" || !task.result.trim())
+        throw providerFailure(task.result, settings.provider);
+      return task.result;
+    },
+    progress,
+    cancelled,
+  );
+}
 const prefixes: Record<string, string> = {
   chatgpt: "chatGPT",
   customgpt1: "customGPT1",

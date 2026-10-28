@@ -30,7 +30,9 @@ await build({
     },
   ],
 });
-const { annotationCandidate } = await import(pathToFileURL(join(dir, "p.mjs")));
+const { annotationCandidate, generatePaperGuide } = await import(
+  pathToFileURL(join(dir, "p.mjs"))
+);
 await rm(dir, { recursive: true, force: true });
 const context = {
   source: "Collect soil samples.",
@@ -97,4 +99,88 @@ test("Google forward matching and provider failures are not silently skipped", a
     },
   });
   await assert.rejects(annotationCandidate(context, 1), /网络/);
+});
+
+test("AI guide rejects MT and uses configured instruction-aware model", async () => {
+  globalThis.provider = "google";
+  await assert.rejects(
+    generatePaperGuide(
+      [],
+      1,
+      () => {},
+      () => false,
+    ),
+    /大模型/,
+  );
+  globalThis.provider = "chatgpt";
+  const b = {
+    id: "a",
+    kind: "paragraph",
+    source: "The device measures force in water.",
+  };
+  globalThis.addon = {
+    data: {
+      translate: {
+        services: {
+          getServiceById: () => ({
+            type: "sentence",
+            translate: async (t) => {
+              assert.match(t.bilingualInstruction, /verbatim/);
+              assert.equal(JSON.parse(t.raw)[0].id, "a");
+              t.result = JSON.stringify({
+                claims: [
+                  {
+                    kind: "method",
+                    text: "测量水中的力",
+                    conditions: "",
+                    evidence: [{ blockId: "a", quote: b.source }],
+                  },
+                ],
+              });
+              t.status = "success";
+            },
+          }),
+        },
+      },
+    },
+  };
+  assert.equal(
+    (
+      await generatePaperGuide(
+        [b],
+        1,
+        () => {},
+        () => false,
+      )
+    ).claims.length,
+    1,
+  );
+});
+test("guide discards output after provider switch", async () => {
+  globalThis.provider = "chatgpt";
+  globalThis.addon = {
+    data: {
+      translate: {
+        services: {
+          getServiceById: () => ({
+            type: "sentence",
+            translate: async (t) => {
+              globalThis.provider = "claude";
+              t.status = "success";
+              t.result = '{"claims":[]}';
+            },
+          }),
+        },
+      },
+    },
+  };
+  await assert.rejects(
+    generatePaperGuide(
+      [{ id: "a", kind: "paragraph", source: "This is source material." }],
+      1,
+      () => {},
+      () => false,
+    ),
+    /模型设置/,
+  );
 });

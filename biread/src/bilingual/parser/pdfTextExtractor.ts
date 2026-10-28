@@ -1,4 +1,4 @@
-import { auditLayout, originalPage } from "./layoutQuality";
+import { auditLayout, acceptLayout } from "./layoutQuality";
 import { blockRect, sameRegion } from "./pdfImages";
 import { preserveOriginalRegions } from "./originalRegions";
 import { extractTextTables } from "./textTables";
@@ -16,6 +16,8 @@ import { readingOrder } from "./readingOrder";
 import { segmentPage, inferHierarchy } from "./blockSegmenter";
 import { captionKind } from "./regionLabels";
 import { restoreInlineFlow } from "./inlineFlow";
+import { applyModelLayout } from "./modelLayout";
+import { attachReferenceLinks, type SourceLink } from "./referenceLinks";
 
 export async function extractDocument(
   pdf: any,
@@ -40,9 +42,15 @@ export async function extractDocument(
   const references = { active: false };
   const labels = await pdf.getPageLabels();
   const pages: TextPage[] = [];
+  const links: SourceLink[][] = [];
   for (let pageIndex = 0; pageIndex < pdf.numPages; pageIndex++) {
     if (cancelled()) throw new Error("Cancelled");
     const page = await pdf.getPageData({ pageIndex });
+    try {
+      links[pageIndex] = pdf.getLinks ? await pdf.getLinks(pageIndex) : [];
+    } catch {
+      links[pageIndex] = [];
+    }
     const glyphs = readingOrder(page.chars || []);
     if (!glyphs.length) document.emptyPages.push(pageIndex);
     pages.push({ glyphs, box: Array.from(page.viewBox) as TextPage["box"] });
@@ -146,16 +154,22 @@ export async function extractDocument(
     });
     for (const note of noteBlocks) note.kind = "footnote";
     unique.push(...noteBlocks);
-    const parsed = preserveOriginalRegions(unique, graphics, box);
+    const detected = pdf.layoutRegions?.[pageIndex];
+    const constrained = detected
+      ? applyModelLayout(unique, detected, box, "regions")
+      : unique;
+    const preserved = preserveOriginalRegions(constrained, graphics, box);
+    const parsed = detected
+      ? applyModelLayout(preserved, detected, box, "flow")
+      : preserved;
     const issues = auditLayout(allGlyphs, parsed, box);
     document.blocks.push(
-      ...(issues.length
-        ? [originalPage(pageIndex, label, box, issues)]
-        : parsed
-      ).map((block) => ({
-        ...block,
-        pageBox: box,
-      })),
+      ...acceptLayout(parsed, issues, pageIndex, label, box, allGlyphs).map(
+        (block) => ({
+          ...block,
+          pageBox: box,
+        }),
+      ),
     );
     await Zotero.Promise.delay(0);
   }
@@ -167,5 +181,6 @@ export async function extractDocument(
   identifyFrontMatter(document.blocks);
   identifyReferences(document.blocks);
   assignSections(document.blocks);
+  attachReferenceLinks(document.blocks, links);
   return document;
 }

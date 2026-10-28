@@ -31,3 +31,4 @@ zotero-inline-translate-main/
 
 **/test/fixtures/*.blocks.json
 **/test/fixtures/*.p[0-9]*.json
+**/.biread-layout-engine/

@@ -108,7 +108,7 @@ function tableBelow(
       r[0] < c[2],
   );
   const top = rules
-    .filter((r) => c[3] - r[3] < 65)
+    .filter((r) => c[3] - r[3] < Math.max(65, (caption.fontSize || 10) * 6.5))
     .sort((a, b) => b[3] - a[3])[0];
   if (!top) return;
   const aligned = rules
@@ -116,12 +116,9 @@ function tableBelow(
     .sort((a, b) => b[3] - a[3]);
   const run: Rect[] = [];
   for (const r of aligned) {
-    if (
-      run.length &&
-      run[run.length - 1][1] - r[3] >
-        Math.max(120, (caption.fontSize || 10) * 12)
-    )
-      break;
+    // Three-rule tables can have a page-height body with no internal rules.
+    // Caption/section boundaries and aligned edges constrain ownership instead
+    // of an arbitrary maximum distance between horizontal rules.
     if (!run.length || Math.abs(run[run.length - 1][1] - r[1]) > 2) run.push(r);
   }
   if (run.length < 3 || top[3] - run[run.length - 1][1] < 25) return;
@@ -172,7 +169,7 @@ export function extractTextTables(
       .sort((a, b) => b - a)
       .filter((y, i, a) => !i || a[i - 1] - y > 2);
     if (ys.length < 3) continue;
-    const bands = ys
+    let bands = ys
       .slice(0, -1)
       .map((top, i) =>
         chars.filter(
@@ -217,6 +214,36 @@ export function extractTextTables(
       .filter((x, i, a) => !i || x - a[i - 1] > 4);
     if (!cuts.length || cuts.length > 15) continue;
     const columns = [rect[0], ...cuts, rect[2]];
+    // Within an unruled body band, infer logical rows from the key column.
+    // Continuation lines in the definition column stay in the same cell.
+    bands = bands.flatMap((band, bandIndex) => {
+      if (!bandIndex) return [band];
+      const physical = lines(band);
+      if (physical.length < 3) return [band];
+      const hasKey = (line: Glyph[]) =>
+        line.some((g) => center(g)[0] < columns[1]);
+      const hasValue = (line: Glyph[]) =>
+        line.some((g) => center(g)[0] >= columns[1]);
+      const gaps = physical
+        .slice(1)
+        .map((line, i) => center(physical[i][0])[1] - center(line[0])[1])
+        .sort((a, b) => a - b);
+      const usualGap = gaps[Math.floor(gaps.length / 2)] || 12;
+      const rows: Glyph[][] = [[]];
+      for (let i = 0; i < physical.length; i++) {
+        const line = physical[i];
+        const gap = i ? center(physical[i - 1][0])[1] - center(line[0])[1] : 0;
+        if (
+          i &&
+          hasKey(line) &&
+          hasValue(line) &&
+          (!hasKey(physical[i - 1]) || gap > usualGap * 1.25)
+        )
+          rows.push([]);
+        rows[rows.length - 1].push(...line);
+      }
+      return rows;
+    });
     const id = caption.id + "-table";
     const built: Block[] = [];
     for (let row = 0; row < bands.length; row++) {
@@ -250,8 +277,10 @@ export function extractTextTables(
         let source = "";
         const anchors: Block["anchors"] = [];
         const group = groups[col];
+        let previousLine: Glyph[] | undefined;
         for (const line of lines(group)) {
-          if (source) source += "\n";
+          if (source && !previousLine?.at(-1)?.joinsNextLine) source += " ";
+          previousLine = line;
           for (let n = 0; n < line.length; n++) {
             const g = line[n],
               start = source.length;

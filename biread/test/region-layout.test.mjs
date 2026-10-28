@@ -28,6 +28,49 @@ const compiled = await build({
 const core = await import(
   `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString("base64")}`
 );
+
+test("missing figure association keeps readable prose and caption translatable", () => {
+  const prose = {
+    id: "body",
+    kind: "paragraph",
+    source: "Discussion of the experimental results.",
+    anchors: [],
+  };
+  const caption = {
+    id: "fig",
+    kind: "caption",
+    source: "Figure 6. Experimental setup.",
+    anchors: [],
+  };
+  const result = core.acceptLayout(
+    [prose, caption],
+    ["missing-visual-region"],
+    7,
+    "94",
+    [0, 0, 600, 800],
+  );
+  assert.equal(result.length, 2);
+  assert.equal(result[0], prose);
+  assert.equal(result[1].kind, "caption");
+  assert.deepEqual(result[1].layoutIssues, ["missing-visual-region"]);
+  assert.equal(
+    result.some((b) => b.kind === "original-page"),
+    false,
+  );
+});
+
+test("local figure warning does not disable genuine unreadable-page protection", () => {
+  const result = core.acceptLayout(
+    [],
+    ["missing-visual-region", "no-text"],
+    0,
+    "1",
+    [0, 0, 600, 800],
+  );
+  assert.equal(result.length, 1);
+  assert.equal(result[0].kind, "original-page");
+  assert.deepEqual(result[0].layoutIssues, ["no-text"]);
+});
 const make = (id, source, rect, kind = "paragraph") => ({
   id,
   source,
@@ -45,6 +88,39 @@ const make = (id, source, rect, kind = "paragraph") => ({
       rect,
     },
   ],
+});
+
+test("outer-margin caption finds a unique top-aligned whole figure across a prose column", () => {
+  const caption = make(
+    "c1",
+    "Figure 6. Structure.",
+    [480, 650, 540, 695],
+    "caption",
+  );
+  const prose = make(
+    "p2",
+    "Readable discussion text. ".repeat(10),
+    [260, 400, 450, 695],
+  );
+  const r = core.figureRegion(
+    caption,
+    [[40, 470, 230, 700]],
+    [0, 0, 600, 800],
+    [caption, prose],
+  );
+  assert.ok(r);
+  assert.ok(r[0] <= 40 && r[2] >= 230);
+  assert.ok(r[2] < 260);
+  const ambiguous = core.figureRegion(
+    caption,
+    [
+      [40, 470, 230, 700],
+      [260, 470, 450, 700],
+    ],
+    [0, 0, 600, 800],
+    [caption],
+  );
+  assert.equal(ambiguous, undefined);
 });
 const prose =
   "This is a continuous prose paragraph describing the experimental procedure and explaining the observed results without a mathematical expression.";
@@ -532,3 +608,167 @@ test("private font symbols are preserved inline with exact surrounding text and 
     assert.equal(b.source.slice(a.start, a.end), source[a.charIndex]);
   for (const m of b.inlineMath) assert.ok(m.rect[2] - m.rect[0] < 25);
 });
+
+test("local math and glyph faults never suppress neighboring readable paragraphs", () => {
+  const body = make(
+    "b1",
+    "The experiment evaluates the performance under controlled conditions.",
+    [20, 600, 280, 640],
+  );
+  const bad = make("b2", "\ue001 + x = 2", [20, 550, 150, 570]);
+  const result = core.acceptLayout(
+    [body, bad],
+    ["unreadable-glyphs", "fragmented-math"],
+    0,
+    "1",
+    [0, 0, 600, 800],
+  );
+  assert.equal(result[0], body);
+  assert.equal(result[0].kind, "paragraph");
+  assert.equal(result[1].kind, "equation");
+  assert.deepEqual(result[1].originalRegion.rect, [20, 550, 150, 570]);
+  assert.ok(result[1].layoutIssues.includes("local-original"));
+  assert.ok(!result.some((b) => b.kind === "original-page"));
+});
+
+test("invalid and overlapping figure crops preserve prose and caption translation", () => {
+  for (const rect of [
+    [NaN, 0, 600, 800],
+    [0, 0, 600, 800],
+  ]) {
+    const body = make(
+      "b1",
+      "Discussion of the measured results and their implications.",
+      [30, 300, 290, 500],
+    );
+    const caption = make(
+      "b2",
+      "Figure 1. Apparatus.",
+      [30, 200, 280, 220],
+      "caption",
+    );
+    caption.originalRegion = { kind: "figure", rect };
+    const result = core.acceptLayout(
+      [body, caption],
+      ["invalid-region", "overlapping-regions"],
+      0,
+      "1",
+      [0, 0, 600, 800],
+    );
+    assert.equal(result[0].kind, "paragraph");
+    assert.equal(result[1].kind, "caption");
+    assert.equal(result[1].originalRegion, undefined);
+    assert.ok(result[1].layoutIssues.includes("missing-visual-region"));
+  }
+});
+
+test("omitted text is recovered without extracting labels from preserved figures", () => {
+  const body = make("b1", "Existing prose remains.", [20, 600, 280, 620]);
+  const fig = make("b2", "Figure 1. Setup.", [20, 200, 280, 220], "caption");
+  fig.originalRegion = { kind: "figure", rect: [20, 230, 280, 400] };
+  const glyphs = [
+    { index: 1, text: body.source, rect: [20, 600, 280, 620], fontSize: 10 },
+    {
+      index: 3,
+      text: "Recovered discussion remains translatable.",
+      rect: [20, 440, 280, 455],
+      fontSize: 10,
+    },
+    { index: 4, text: "Axis label", rect: [30, 300, 70, 310], fontSize: 10 },
+  ];
+  const result = core.acceptLayout(
+    [body, fig],
+    ["missing-text"],
+    0,
+    "1",
+    [0, 0, 600, 800],
+    glyphs,
+  );
+  const recovered = result.find((b) =>
+    b.source.includes("Recovered discussion"),
+  );
+  assert.ok(recovered);
+  assert.ok(recovered.segments.length);
+  assert.ok(
+    !result.some(
+      (b) => b.source.includes("Axis label") || b.kind === "original-page",
+    ),
+  );
+});
+
+test("empty parser output with usable source text is reparsed, not replaced by a page image", () => {
+  const result = core.acceptLayout(
+    [],
+    ["missing-text"],
+    0,
+    "1",
+    [0, 0, 600, 800],
+    [
+      {
+        index: 0,
+        text: "Readable text must be translated despite a failed region detector.",
+        rect: [20, 300, 280, 320],
+        fontSize: 10,
+      },
+    ],
+  );
+  assert.ok(result.length);
+  assert.ok(result.every((b) => b.kind !== "original-page"));
+  assert.ok(result[0].segments.length);
+});
+
+for (const scale of [0.5, 1, 2])
+  test(`page-height three-rule table keeps multiline values in logical rows at scale ${scale}`, () => {
+    const r = (v) => v.map((n) => n * scale);
+    const caption = make(
+      "table0",
+      "Table 1.1 Definitions of terms",
+      r([10, 760, 400, 775]),
+      "caption",
+    );
+    caption.fontSize = 10 * scale;
+    let index = 1;
+    const glyphs = [];
+    const word = (text, x, y, width, join = false) =>
+      glyphs.push({
+        text,
+        index: index++,
+        rect: r([x, y, x + width, y + 10]),
+        fontSize: 10 * scale,
+        joinsNextLine: join,
+      });
+    word("Term", 20, 720, 40);
+    word("Definition", 160, 720, 70);
+    for (let n = 0; n < 4; n++) {
+      const y = 670 - n * 140;
+      word("Concept " + n, 20, y, 80);
+      word("A detailed definition", 160, y, 180);
+      word("with a second line", 160, y - 15, 160);
+      word("and the final statement.", 160, y - 30, 190);
+    }
+    const rules = [740, 705, 120].map((y) => r([10, y, 400, y]));
+    const { cells, consumed } = core.extractTextTables(glyphs, rules, [
+      caption,
+    ]);
+    assert.equal(cells.length, 10);
+    assert.equal(consumed.size, glyphs.length);
+    for (let n = 1; n <= 4; n++) {
+      const value = cells.find(
+        (c) => c.table.row === n && c.table.column === 1,
+      );
+      assert.equal(
+        value.source,
+        "A detailed definition with a second line and the final statement.",
+      );
+      assert.equal(value.table.rows, 5);
+      assert.equal(value.anchors.length, 3);
+      assert.equal(value.segments.length, 1);
+    }
+    const preserved = core.preserveOriginalRegions(
+      [caption, ...cells],
+      rules,
+      r([0, 0, 600, 800]),
+    );
+    assert.equal(preserved.filter((b) => b.kind === "table-cell").length, 10);
+    assert.equal(caption.originalRegion.kind, "table");
+  });

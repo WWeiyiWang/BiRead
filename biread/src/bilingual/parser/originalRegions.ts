@@ -188,8 +188,9 @@ function preserveCanonicalRegions(
       .filter((b) => b.kind === "caption" && b.anchors.length)
       .map((b) => [
         b.id,
-        (captionKind(b.source) === "table" &&
-          textTableRegion(b, graphics, blocks)) ||
+        b.originalRegion?.rect ||
+          (captionKind(b.source) === "table" &&
+            textTableRegion(b, graphics, blocks)) ||
           figureRegion(b, graphics, box, blocks),
       ]),
   );
@@ -360,7 +361,7 @@ function preserveCanonicalRegions(
           (b) =>
             b !== owner &&
             contains(r, b) &&
-            !["title", "caption"].includes(b.kind) &&
+            !["title", "caption", "table-cell"].includes(b.kind) &&
             (b.kind !== "footnote" ||
               (!!owner.rotation && b.rotation === owner.rotation)),
         ),
@@ -430,7 +431,7 @@ function preserveCanonicalRegions(
           b === owner ||
           removed.has(b) ||
           members.includes(b) ||
-          ["caption", "title", "footnote"].includes(b.kind) ||
+          ["caption", "title", "footnote", "table-cell"].includes(b.kind) ||
           b.source.length > 140 ||
           /[.!?。]\s*$/.test(b.source)
         )

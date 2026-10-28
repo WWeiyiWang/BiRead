@@ -297,3 +297,28 @@ test("original marker-looking text cannot collide with generated tokens", async 
   );
   assert.equal(out, "ZXQKEEP0QXZ remains $x$");
 });
+
+test("italic prose with PDF ligatures is not mistaken for inline math", () => {
+  let x = 20;
+  const text = "Static Pose/Conﬁguration Assignment is used for future tasks.";
+  const chars = Array.from(text, (text, index) => {
+    const g = {
+      text,
+      index,
+      rect: [x, 100, x + 5, 110],
+      baseline: 102,
+      fontSize: 10,
+      italic: true,
+      spaceAfter: false,
+    };
+    x += 5;
+    return g;
+  });
+  chars.at(-1).paragraphBreakAfter = true;
+  const flow = api.restoreInlineFlow(chars, 0);
+  assert.equal(
+    flow.some((g) => g.inlineMath),
+    false,
+  );
+  assert.equal(flow.map((g) => g.text).join(""), text);
+});
