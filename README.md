@@ -4,6 +4,8 @@
 
 📖 **第一次使用？[从 GitHub 下载、安装到 Zotero，再到翻译与标注：保姆级中文教程](docs/GETTING_STARTED_ZH.md)**
 
+**GPT 设置：[BiRead 配置 GPT 教程](#biread-配置-gpt-教程)**
+
 BiRead adds bilingual reading to Zotero’s built-in PDF reader. It extracts selectable PDF text, organizes it into reading blocks, and translates those blocks with a translation provider configured in Zotero. You can read the original and translation side by side or use an immersive view, and create Zotero annotations from selected text.
 
 > **Beta:** BiRead is experimental. Expect bugs, layout differences, and breaking changes. Test it with a backup of your Zotero data before relying on it.
@@ -36,6 +38,50 @@ PDF structure recognition is heuristic. Scanned PDFs without selectable text are
 3. Select the downloaded `.xpi` and restart Zotero if it asks you to.
 
 **Independent identity:** BiRead uses its own Zotero add-on ID and preference namespace. Installing it creates a separate Plugins entry and does not migrate or delete settings or credentials from Translate for Zotero. Provider credentials must be entered again in BiRead.
+
+## BiRead 配置 GPT 教程
+
+**1. 准备 API 额度**
+
+登录 [OpenAI API 平台](https://platform.openai.com/)，在 [Billing](https://platform.openai.com/settings/organization/billing/overview) 确认有可用额度。ChatGPT 会员不等于自动拥有 API 额度。
+
+**2. 创建密钥**
+
+打开 [API Keys](https://platform.openai.com/api-keys) → **Create new secret key**：
+
+- Owned by：`You`
+- Name：`BiRead`
+- Project：`Default project` 或自己的项目
+- 有效期：按需选择
+- Permissions：`All`
+
+创建后复制完整密钥。
+
+**3. 填入 BiRead**
+
+Zotero → **设置 → BiRead 的“翻译”页（书本图标）**：
+
+选择 **ChatGPT**，粘贴密钥，点击 **配置**：
+
+| 参数 | 填写内容 |
+| --- | --- |
+| 接口地址／Endpoint | `https://api.openai.com/v1/chat/completions` |
+| 模型／Model | `gpt-4o-mini` |
+| 其他参数 | 保持默认 |
+
+**4. 开始使用**
+
+打开 PDF → BiRead → **阅读设置**：
+
+- 正文翻译：选 `ChatGPT`
+- 导读服务：选 `ChatGPT`
+- 翻译并发：先选 `1 个请求`
+
+生成总结：**论文导读 → 生成全文 AI 导读**。
+
+也可以正文选免费翻译，导读单独用 GPT。两者共用已保存的 API 配置，无需安装本地模型或 OCR。
+
+在 [Usage](https://platform.openai.com/usage) 查看用量；担心超额，可在项目 **Limits** 中设置金额并开启 **Enforce a hard limit**。API 使用会消耗额度，论文文本会发送给对应服务。
 
 ## Relationship to zotero-pdf-translate
 
